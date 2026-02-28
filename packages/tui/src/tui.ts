@@ -8,7 +8,8 @@ import * as path from "node:path";
 import { isKeyRelease, matchesKey } from "./keys.js";
 import { isMouseSequence, type MouseEvent, parseMouseSequence } from "./mouse.js";
 import type { Terminal } from "./terminal.js";
-import { getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.js";
+import { deleteAllKittyImages, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.js";
+import { renderCroppedImageLine } from "./terminal-image-crop.js";
 import { extractSegments, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.js";
 
 /**
@@ -258,6 +259,7 @@ export class TUI extends Container {
 	private scrollOffset = 0; // Lines scrolled up from bottom
 	private contentLineCount = 0; // Total lines in full render
 	private viewportTop = 0; // Top line index of visible viewport in full render
+	private hadImages = false;
 	private maxLinesRendered = 0; // Track last rendered line count (viewport height)
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private fullRedrawCount = 0;
@@ -325,6 +327,20 @@ export class TUI extends Container {
 		if (this.scrollOffset === 0) return;
 		this.scrollOffset = 0;
 		this.requestRender();
+	}
+
+	private getImageRanges(lines: string[]): Array<{ start: number; end: number }> {
+		const ranges: Array<{ start: number; end: number }> = [];
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i] ?? "";
+			if (!isImageLine(line)) continue;
+			const match = line.match(/^\x1b\[(\d+)A/);
+			const moveUp = match ? parseInt(match[1] ?? "0", 10) : 0;
+			const rows = Math.max(1, moveUp + 1);
+			const start = Math.max(0, i - (rows - 1));
+			ranges.push({ start, end: i });
+		}
+		return ranges;
 	}
 
 	setFocus(component: Component | null): void {
@@ -963,22 +979,55 @@ export class TUI extends Container {
 		};
 
 		// Render all components to get new lines
-		let newLines = this.render(width);
-		const contentDelta = newLines.length - this.contentLineCount;
+		const fullLines = this.render(width);
+		const imageRanges = this.getImageRanges(fullLines);
+		const fullHasImages = imageRanges.length > 0;
+		const contentDelta = fullLines.length - this.contentLineCount;
 		if (contentDelta > 0 && this.scrollOffset > 0) {
 			this.scrollOffset += contentDelta;
 		}
-		this.contentLineCount = newLines.length;
+		this.contentLineCount = fullLines.length;
 
-		const maxScrollOffset = Math.max(0, newLines.length - height);
+		const maxScrollOffset = Math.max(0, fullLines.length - height);
 		this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, maxScrollOffset));
-		this.viewportTop = Math.max(0, newLines.length - height - this.scrollOffset);
+		this.viewportTop = Math.max(0, fullLines.length - height - this.scrollOffset);
 
-		const visibleLines = newLines.slice(this.viewportTop, this.viewportTop + height);
+		const visibleLines = fullLines.slice(this.viewportTop, this.viewportTop + height);
 		while (visibleLines.length < height) {
 			visibleLines.push("");
 		}
-		newLines = visibleLines;
+		const viewportEnd = this.viewportTop + height - 1;
+		const sanitizedLines = [...visibleLines];
+		const imagePlaceholder = sliceByColumn("[Image hidden]", 0, width, true);
+		if (imageRanges.length > 0) {
+			for (const range of imageRanges) {
+				const intersects = range.end >= this.viewportTop && range.start <= viewportEnd;
+				if (!intersects) continue;
+				const fullyVisible = range.start >= this.viewportTop && range.end <= viewportEnd;
+				if (!fullyVisible) {
+					const visibleStart = Math.max(range.start, this.viewportTop);
+					const visibleEnd = Math.min(range.end, viewportEnd);
+					const start = visibleStart - this.viewportTop;
+					const end = visibleEnd - this.viewportTop;
+					const clipTopRows = visibleStart - range.start;
+					const visibleRows = visibleEnd - visibleStart + 1;
+					const imageLine = fullLines[range.end] ?? "";
+					const croppedLine = renderCroppedImageLine(imageLine, { clipTopRows, visibleRows });
+					for (let i = start; i <= end; i++) {
+						sanitizedLines[i] = "";
+					}
+					sanitizedLines[end] = croppedLine ?? imagePlaceholder;
+				}
+			}
+		}
+		const caps = getCapabilities();
+		const shouldClearImages = caps.images === "kitty" && (fullHasImages || this.hadImages);
+		const previousHadImages = this.previousLines.some((line) => isImageLine(line));
+		const forceImageFullRender = fullHasImages || previousHadImages;
+		const imageClear = shouldClearImages ? deleteAllKittyImages() : "";
+		this.hadImages = fullHasImages;
+
+		let newLines = sanitizedLines;
 
 		// Composite overlays into the rendered lines (before differential compare)
 		if (this.overlayStack.length > 0) {
@@ -996,7 +1045,7 @@ export class TUI extends Container {
 		// Helper to clear scrollback and viewport and render all new lines
 		const fullRender = (clear: boolean): void => {
 			this.fullRedrawCount += 1;
-			let buffer = "\x1b[?2026h"; // Begin synchronized output
+			let buffer = `${imageClear}\x1b[?2026h`; // Begin synchronized output
 			if (clear) buffer += "\x1b[3J\x1b[2J\x1b[H"; // Clear scrollback, screen, and home
 			for (let i = 0; i < newLines.length; i++) {
 				if (i > 0) buffer += "\r\n";
@@ -1031,6 +1080,12 @@ export class TUI extends Container {
 		// Width changed - full re-render (line wrapping changes)
 		if (widthChanged) {
 			logRedraw(`width changed (${this.previousWidth} -> ${width})`);
+			fullRender(true);
+			return;
+		}
+
+		if (forceImageFullRender) {
+			logRedraw("image full render");
 			fullRender(true);
 			return;
 		}
@@ -1078,7 +1133,7 @@ export class TUI extends Container {
 		// All changes are in deleted lines (nothing to render, just clear)
 		if (firstChanged >= newLines.length) {
 			if (this.previousLines.length > newLines.length) {
-				let buffer = "\x1b[?2026h";
+				let buffer = `${imageClear}\x1b[?2026h`;
 				// Move to end of new content (clamp to 0 for empty content)
 				const targetRow = Math.max(0, newLines.length - 1);
 				const lineDiff = computeLineDiff(targetRow);
@@ -1126,7 +1181,7 @@ export class TUI extends Container {
 
 		// Render from first changed line to end
 		// Build buffer with all updates wrapped in synchronized output
-		let buffer = "\x1b[?2026h"; // Begin synchronized output
+		let buffer = `${imageClear}\x1b[?2026h`; // Begin synchronized output
 		const prevViewportBottom = prevViewportTop + height - 1;
 		const moveTargetRow = appendStart ? firstChanged - 1 : firstChanged;
 		if (moveTargetRow > prevViewportBottom) {
