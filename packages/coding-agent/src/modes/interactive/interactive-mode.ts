@@ -2753,6 +2753,10 @@ export class InteractiveMode {
 		let pendingExpandTarget: Expandable | null = null;
 		let pressStart: { x: number; y: number } | null = null;
 		let hasDragged = false;
+		const getExpandableLeaf = (row: number): Component | null => {
+			const leaf = this.ui.componentAtScreenRow(row);
+			return leaf instanceof Spacer ? null : leaf;
+		};
 		this.removeMouseListener = this.ui.addMouseListener((event: MouseEvent) => {
 			if (event.button === "scroll-up") {
 				this.ui.scrollBy(1);
@@ -2773,7 +2777,7 @@ export class InteractiveMode {
 					// Click only dismisses selection; don't start expand tracking
 					pendingExpandTarget = null;
 				} else {
-					const leaf = this.ui.componentAtScreenRow(event.y);
+					const leaf = getExpandableLeaf(event.y);
 					pendingExpandTarget = leaf ? this.findExpandableAncestor(leaf) : null;
 				}
 				return undefined;
@@ -2809,7 +2813,7 @@ export class InteractiveMode {
 				if (!pressTarget) return undefined;
 
 				// Verify release is on the same expandable component
-				const leaf = this.ui.componentAtScreenRow(event.y);
+				const leaf = getExpandableLeaf(event.y);
 				const releaseTarget = leaf ? this.findExpandableAncestor(leaf) : null;
 				if (releaseTarget !== pressTarget) return undefined;
 
