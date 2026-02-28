@@ -2748,6 +2748,7 @@ export class InteractiveMode {
 	 */
 	private setupMouseHandler(): void {
 		this.ui.terminal.enableMouse();
+		let pendingExpandTarget: Expandable | null = null;
 		this.removeMouseListener = this.ui.addMouseListener((event: MouseEvent) => {
 			if (event.button === "scroll-up") {
 				this.ui.scrollBy(1);
@@ -2757,31 +2758,42 @@ export class InteractiveMode {
 				this.ui.scrollBy(-1);
 				return true;
 			}
-			if (event.action !== "press" || event.button !== "left") return undefined;
+			if (event.button !== "left") return undefined;
 
-			const leaf = this.ui.componentAtScreenRow(event.y);
-			if (!leaf) return undefined;
-
-			// Walk chatContainer.children to find the top-level expandable that contains the clicked leaf
-			const target = this.findExpandableAncestor(leaf);
-			if (!target) return undefined;
-
-			// Toggle this component's expand state individually
-			const newState = !target.getExpanded();
-			this.ui.lockViewportTop(this.ui.getViewportTop(), {
-				forceFullRenderOnBottom: !newState,
-			});
-			target.setExpanded(newState);
-
-			// Track override so global toggle can reset it
-			if (newState !== this.toolOutputExpanded) {
-				this.toolExpandOverrides.add(target);
-			} else {
-				this.toolExpandOverrides.delete(target);
+			if (event.action === "press") {
+				const leaf = this.ui.componentAtScreenRow(event.y);
+				pendingExpandTarget = leaf ? this.findExpandableAncestor(leaf) : null;
+				return undefined;
 			}
 
-			this.ui.requestRender();
-			return true;
+			if (event.action === "release") {
+				const pressTarget = pendingExpandTarget;
+				pendingExpandTarget = null;
+				if (!pressTarget) return undefined;
+
+				// Verify release is on the same expandable component
+				const leaf = this.ui.componentAtScreenRow(event.y);
+				const releaseTarget = leaf ? this.findExpandableAncestor(leaf) : null;
+				if (releaseTarget !== pressTarget) return undefined;
+
+				const target = pressTarget;
+				const newState = !target.getExpanded();
+				this.ui.lockViewportTop(this.ui.getViewportTop(), {
+					forceFullRenderOnBottom: !newState,
+				});
+				target.setExpanded(newState);
+
+				if (newState !== this.toolOutputExpanded) {
+					this.toolExpandOverrides.add(target);
+				} else {
+					this.toolExpandOverrides.delete(target);
+				}
+
+				this.ui.requestRender();
+				return true;
+			}
+
+			return undefined;
 		});
 	}
 
