@@ -45,6 +45,15 @@ type InputListenerResult = { consume?: boolean; data?: string } | undefined;
 type InputListener = (data: string) => InputListenerResult;
 type MouseListener = (event: MouseEvent) => boolean | undefined;
 
+type ViewportLockOptions = {
+	forceFullRenderOnBottom?: boolean;
+};
+
+type PendingViewportLock = {
+	viewportTop: number;
+	forceFullRenderOnBottom: boolean;
+};
+
 /**
  * Interface for components that can receive focus and display a hardware cursor.
  * When focused, the component should emit CURSOR_MARKER at the cursor position
@@ -259,6 +268,7 @@ export class TUI extends Container {
 	private scrollOffset = 0; // Lines scrolled up from bottom
 	private contentLineCount = 0; // Total lines in full render
 	private viewportTop = 0; // Top line index of visible viewport in full render
+	private pendingViewportLock?: PendingViewportLock;
 	private hadImages = false;
 	private maxLinesRendered = 0; // Track last rendered line count (viewport height)
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
@@ -327,6 +337,21 @@ export class TUI extends Container {
 		if (this.scrollOffset === 0) return;
 		this.scrollOffset = 0;
 		this.requestRender();
+	}
+
+	getViewportTop(): number {
+		return this.viewportTop;
+	}
+
+	/**
+	 * Keep the viewport's top line fixed on the next render.
+	 * Useful when expanding/collapsing components to avoid shifting content upward.
+	 */
+	lockViewportTop(viewportTop: number, options?: ViewportLockOptions): void {
+		this.pendingViewportLock = {
+			viewportTop,
+			forceFullRenderOnBottom: options?.forceFullRenderOnBottom ?? false,
+		};
 	}
 
 	private getImageRanges(lines: string[]): Array<{ start: number; end: number }> {
@@ -983,7 +1008,18 @@ export class TUI extends Container {
 		const imageRanges = this.getImageRanges(fullLines);
 		const fullHasImages = imageRanges.length > 0;
 		const contentDelta = fullLines.length - this.contentLineCount;
-		if (contentDelta > 0 && this.scrollOffset > 0) {
+		const pendingViewportLock = this.pendingViewportLock;
+		this.pendingViewportLock = undefined;
+		let forceViewportFullRender = false;
+		if (pendingViewportLock) {
+			const maxViewportTop = Math.max(0, fullLines.length - height);
+			const desiredViewportTop = pendingViewportLock.viewportTop;
+			const clampedViewportTop = Math.max(0, Math.min(desiredViewportTop, maxViewportTop));
+			this.scrollOffset = Math.max(0, fullLines.length - height - clampedViewportTop);
+			if (pendingViewportLock.forceFullRenderOnBottom && desiredViewportTop > maxViewportTop) {
+				forceViewportFullRender = true;
+			}
+		} else if (contentDelta > 0 && this.scrollOffset > 0) {
 			this.scrollOffset += contentDelta;
 		}
 		this.contentLineCount = fullLines.length;
@@ -1086,6 +1122,12 @@ export class TUI extends Container {
 
 		if (forceImageFullRender) {
 			logRedraw("image full render");
+			fullRender(true);
+			return;
+		}
+
+		if (forceViewportFullRender) {
+			logRedraw("viewport lock full render");
 			fullRender(true);
 			return;
 		}

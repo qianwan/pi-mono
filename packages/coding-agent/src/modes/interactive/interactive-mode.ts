@@ -2768,6 +2768,9 @@ export class InteractiveMode {
 
 			// Toggle this component's expand state individually
 			const newState = !target.getExpanded();
+			this.ui.lockViewportTop(this.ui.getViewportTop(), {
+				forceFullRenderOnBottom: !newState,
+			});
 			target.setExpanded(newState);
 
 			// Track override so global toggle can reset it
