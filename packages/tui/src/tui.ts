@@ -10,7 +10,7 @@ import { isMouseSequence, type MouseEvent, parseMouseSequence } from "./mouse.js
 import type { Terminal } from "./terminal.js";
 import { deleteAllKittyImages, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.js";
 import { renderCroppedImageLine } from "./terminal-image-crop.js";
-import { extractSegments, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.js";
+import { extractSegments, sliceByColumn, sliceWithWidth, stripAnsi, visibleWidth } from "./utils.js";
 
 /**
  * Component interface - all components must implement this
@@ -272,6 +272,7 @@ export class TUI extends Container {
 	private hadImages = false;
 	private maxLinesRendered = 0; // Track last rendered line count (viewport height)
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
+	private screenSelection?: { startRow: number; startCol: number; endRow: number; endCol: number };
 	private fullRedrawCount = 0;
 	private stopped = false;
 
@@ -343,6 +344,11 @@ export class TUI extends Container {
 		return this.viewportTop;
 	}
 
+	/** Return the rendered line for a 1-based screen row (as reported by mouse events). */
+	getScreenLine(screenRow: number): string {
+		return this.previousLines[screenRow - 1] ?? "";
+	}
+
 	/**
 	 * Keep the viewport's top line fixed on the next render.
 	 * Useful when expanding/collapsing components to avoid shifting content upward.
@@ -352,6 +358,29 @@ export class TUI extends Container {
 			viewportTop,
 			forceFullRenderOnBottom: options?.forceFullRenderOnBottom ?? false,
 		};
+	}
+
+	/** Set a screen selection for visual highlighting (1-based mouse coordinates, converted to absolute content coords). */
+	setScreenSelection(startCol: number, startRow: number, endCol: number, endRow: number): void {
+		this.screenSelection = {
+			startRow: this.viewportTop + startRow - 1,
+			startCol: startCol - 1,
+			endRow: this.viewportTop + endRow - 1,
+			endCol: endCol - 1,
+		};
+		this.requestRender();
+	}
+
+	/** Clear the active screen selection highlight. */
+	clearScreenSelection(): void {
+		if (!this.screenSelection) return;
+		this.screenSelection = undefined;
+		this.requestRender();
+	}
+
+	/** Check if there is an active screen selection. */
+	hasScreenSelection(): boolean {
+		return this.screenSelection !== undefined;
 	}
 
 	private getImageRanges(lines: string[]): Array<{ start: number; end: number }> {
@@ -911,6 +940,59 @@ export class TUI extends Container {
 		return lines;
 	}
 
+	/** Apply reverse-video highlighting to lines within the active screen selection. */
+	private applySelectionHighlight(lines: string[]): void {
+		const sel = this.screenSelection;
+		if (!sel) return;
+
+		// Normalize direction (already 0-based absolute content coords)
+		let sr: number, sc: number, er: number, ec: number;
+		if (sel.startRow < sel.endRow || (sel.startRow === sel.endRow && sel.startCol <= sel.endCol)) {
+			sr = sel.startRow;
+			sc = sel.startCol;
+			er = sel.endRow;
+			ec = sel.endCol;
+		} else {
+			sr = sel.endRow;
+			sc = sel.endCol;
+			er = sel.startRow;
+			ec = sel.startCol;
+		}
+
+		// Convert absolute content rows to viewport-relative indices
+		const vpTop = this.viewportTop;
+
+		for (let absRow = sr; absRow <= er; absRow++) {
+			const i = absRow - vpTop;
+			if (i < 0 || i >= lines.length) continue;
+			if (isImageLine(lines[i])) continue;
+
+			const lw = visibleWidth(lines[i]);
+			let cs: number, ce: number;
+			if (absRow === sr && absRow === er) {
+				cs = sc;
+				ce = ec;
+			} else if (absRow === sr) {
+				cs = sc;
+				ce = lw;
+			} else if (absRow === er) {
+				cs = 0;
+				ce = ec;
+			} else {
+				cs = 0;
+				ce = lw;
+			}
+
+			if (cs >= ce || cs >= lw) continue;
+			ce = Math.min(ce, lw);
+
+			const { before, after } = extractSegments(lines[i], cs, ce, lw - ce, true);
+			const selected = sliceByColumn(lines[i], cs, ce - cs);
+			const selectionStart = "\x1b[22m\x1b[23m\x1b[24m\x1b[29m\x1b[39m\x1b[49m\x1b[7m";
+			lines[i] = `${before}${selectionStart}${stripAnsi(selected)}\x1b[27m${after}`;
+		}
+	}
+
 	/** Splice overlay content into a base line at a specific column. Single-pass optimized. */
 	private compositeLineAt(
 		baseLine: string,
@@ -1072,6 +1154,11 @@ export class TUI extends Container {
 
 		// Extract cursor position before applying line resets (marker must be found first)
 		const cursorPos = this.extractCursorPosition(newLines, height);
+
+		// Apply selection highlight (reverse video) before line resets
+		if (this.screenSelection) {
+			this.applySelectionHighlight(newLines);
+		}
 
 		newLines = this.applyLineResets(newLines);
 

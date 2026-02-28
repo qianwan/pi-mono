@@ -38,6 +38,8 @@ import {
 	matchesKey,
 	ProcessTerminal,
 	Spacer,
+	sliceByColumn,
+	stripAnsi,
 	Text,
 	TruncatedText,
 	TUI,
@@ -2749,6 +2751,8 @@ export class InteractiveMode {
 	private setupMouseHandler(): void {
 		this.ui.terminal.enableMouse();
 		let pendingExpandTarget: Expandable | null = null;
+		let pressStart: { x: number; y: number } | null = null;
+		let hasDragged = false;
 		this.removeMouseListener = this.ui.addMouseListener((event: MouseEvent) => {
 			if (event.button === "scroll-up") {
 				this.ui.scrollBy(1);
@@ -2761,12 +2765,45 @@ export class InteractiveMode {
 			if (event.button !== "left") return undefined;
 
 			if (event.action === "press") {
-				const leaf = this.ui.componentAtScreenRow(event.y);
-				pendingExpandTarget = leaf ? this.findExpandableAncestor(leaf) : null;
+				pressStart = { x: event.x, y: event.y };
+				hasDragged = false;
+				const hadSelection = this.ui.hasScreenSelection();
+				this.ui.clearScreenSelection();
+				if (hadSelection) {
+					// Click only dismisses selection; don't start expand tracking
+					pendingExpandTarget = null;
+				} else {
+					const leaf = this.ui.componentAtScreenRow(event.y);
+					pendingExpandTarget = leaf ? this.findExpandableAncestor(leaf) : null;
+				}
+				return undefined;
+			}
+
+			if (event.action === "move") {
+				if (pressStart && (event.x !== pressStart.x || event.y !== pressStart.y)) {
+					hasDragged = true;
+				}
+				if (hasDragged && pressStart) {
+					this.ui.setScreenSelection(pressStart.x, pressStart.y, event.x, event.y);
+				}
 				return undefined;
 			}
 
 			if (event.action === "release") {
+				const dragStart = pressStart;
+				pressStart = null;
+
+				// Drag selection: extract text and copy to clipboard
+				if (hasDragged && dragStart) {
+					hasDragged = false;
+					pendingExpandTarget = null;
+					// Update selection to final position (keep highlight visible)
+					this.ui.setScreenSelection(dragStart.x, dragStart.y, event.x, event.y);
+					this.copyScreenSelection(dragStart, { x: event.x, y: event.y });
+					return true;
+				}
+				hasDragged = false;
+
 				const pressTarget = pendingExpandTarget;
 				pendingExpandTarget = null;
 				if (!pressTarget) return undefined;
@@ -2816,6 +2853,54 @@ export class InteractiveMode {
 			if (child instanceof Container && this.containsComponent(child, target)) return true;
 		}
 		return false;
+	}
+
+	/** Extract text between two screen coordinates and copy to clipboard. */
+	private copyScreenSelection(start: { x: number; y: number }, end: { x: number; y: number }): void {
+		// Normalize so startRow/Col is before endRow/Col
+		let startRow: number, startCol: number, endRow: number, endCol: number;
+		if (start.y < end.y || (start.y === end.y && start.x <= end.x)) {
+			startRow = start.y;
+			startCol = start.x;
+			endRow = end.y;
+			endCol = end.x;
+		} else {
+			startRow = end.y;
+			startCol = end.x;
+			endRow = start.y;
+			endCol = start.x;
+		}
+
+		const lines: string[] = [];
+		for (let row = startRow; row <= endRow; row++) {
+			const screenLine = this.ui.getScreenLine(row);
+			const lineWidth = visibleWidth(screenLine);
+			if (row === startRow && row === endRow) {
+				const col0 = startCol - 1;
+				const len = endCol - startCol;
+				if (len > 0) {
+					lines.push(stripAnsi(sliceByColumn(screenLine, col0, len)));
+				}
+			} else if (row === startRow) {
+				const col0 = startCol - 1;
+				const len = lineWidth - col0;
+				if (len > 0) {
+					lines.push(stripAnsi(sliceByColumn(screenLine, col0, len)).trimEnd());
+				}
+			} else if (row === endRow) {
+				const len = endCol - 1;
+				if (len > 0) {
+					lines.push(stripAnsi(sliceByColumn(screenLine, 0, len)));
+				}
+			} else {
+				lines.push(stripAnsi(screenLine).trimEnd());
+			}
+		}
+
+		const text = lines.join("\n");
+		if (text.length > 0) {
+			copyToClipboard(text);
+		}
 	}
 
 	private toggleThinkingBlockVisibility(): void {

@@ -241,7 +241,7 @@ export class ProcessTerminal implements Terminal {
 
 		// Disable mouse reporting if active
 		if (this._mouseActive) {
-			process.stdout.write("\x1b[?1006l\x1b[?1000l");
+			process.stdout.write("\x1b[?1006l\x1b[?1002l");
 			this._mouseActive = false;
 		}
 
@@ -337,14 +337,14 @@ export class ProcessTerminal implements Terminal {
 
 	enableMouse(): void {
 		if (this._mouseActive) return;
-		// Enable X11 button event tracking + SGR extended coordinates
-		process.stdout.write("\x1b[?1000h\x1b[?1006h");
+		// Enable button-event tracking (1002: press/release/drag) + SGR extended coordinates
+		process.stdout.write("\x1b[?1002h\x1b[?1006h");
 		this._mouseActive = true;
 	}
 
 	disableMouse(): void {
 		if (!this._mouseActive) return;
-		process.stdout.write("\x1b[?1006l\x1b[?1000l");
+		process.stdout.write("\x1b[?1006l\x1b[?1002l");
 		this._mouseActive = false;
 	}
 }

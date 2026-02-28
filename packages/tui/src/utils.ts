@@ -134,6 +134,19 @@ export function visibleWidth(str: string): number {
 	return width;
 }
 
+/** Strip all ANSI escape sequences from a string, returning plain visible text. */
+export function stripAnsi(str: string): string {
+	if (!str.includes("\x1b")) return str;
+	let clean = str;
+	if (clean.includes("\t")) {
+		clean = clean.replace(/\t/g, "   ");
+	}
+	clean = clean.replace(/\x1b\[[0-9;]*[mGKHJ]/g, "");
+	clean = clean.replace(/\x1b\]8;;[^\x07]*\x07/g, "");
+	clean = clean.replace(/\x1b_[^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
+	return clean;
+}
+
 /**
  * Extract ANSI escape sequences from a string at the given position.
  */
