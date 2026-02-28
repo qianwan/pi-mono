@@ -47,6 +47,10 @@ export interface Terminal {
 
 	// Title operations
 	setTitle(title: string): void; // Set terminal window title
+
+	// Mouse reporting
+	enableMouse(): void; // Enable SGR mouse reporting (button events)
+	disableMouse(): void; // Disable SGR mouse reporting
 }
 
 /**
@@ -60,6 +64,7 @@ export class ProcessTerminal implements Terminal {
 	private stdinBuffer?: StdinBuffer;
 	private stdinDataHandler?: (data: string) => void;
 	private writeLogPath = process.env.PI_TUI_WRITE_LOG || "";
+	private _mouseActive = false;
 
 	get kittyProtocolActive(): boolean {
 		return this._kittyProtocolActive;
@@ -234,6 +239,12 @@ export class ProcessTerminal implements Terminal {
 		// Disable bracketed paste mode
 		process.stdout.write("\x1b[?2004l");
 
+		// Disable mouse reporting if active
+		if (this._mouseActive) {
+			process.stdout.write("\x1b[?1006l\x1b[?1000l");
+			this._mouseActive = false;
+		}
+
 		// Disable Kitty keyboard protocol if not already done by drainInput()
 		if (this._kittyProtocolActive) {
 			process.stdout.write("\x1b[<u");
@@ -322,5 +333,18 @@ export class ProcessTerminal implements Terminal {
 	setTitle(title: string): void {
 		// OSC 0;title BEL - set terminal window title
 		process.stdout.write(`\x1b]0;${title}\x07`);
+	}
+
+	enableMouse(): void {
+		if (this._mouseActive) return;
+		// Enable X11 button event tracking + SGR extended coordinates
+		process.stdout.write("\x1b[?1000h\x1b[?1006h");
+		this._mouseActive = true;
+	}
+
+	disableMouse(): void {
+		if (!this._mouseActive) return;
+		process.stdout.write("\x1b[?1006l\x1b[?1000l");
+		this._mouseActive = false;
 	}
 }

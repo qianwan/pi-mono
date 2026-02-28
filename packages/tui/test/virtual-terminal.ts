@@ -100,6 +100,14 @@ export class VirtualTerminal implements Terminal {
 		this.xterm.write(`\x1b]0;${title}\x07`);
 	}
 
+	enableMouse(): void {
+		// No-op for virtual terminal
+	}
+
+	disableMouse(): void {
+		// No-op for virtual terminal
+	}
+
 	// Test-specific methods not in Terminal interface
 
 	/**

@@ -24,6 +24,10 @@ export class BranchSummaryMessageComponent extends Box {
 		this.updateDisplay();
 	}
 
+	getExpanded(): boolean {
+		return this.expanded;
+	}
+
 	override invalidate(): void {
 		super.invalidate();
 		this.updateDisplay();

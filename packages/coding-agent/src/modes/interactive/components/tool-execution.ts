@@ -344,6 +344,10 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
+	getExpanded(): boolean {
+		return this.expanded;
+	}
+
 	setShowImages(show: boolean): void {
 		this.showImages = show;
 		this.updateDisplay();

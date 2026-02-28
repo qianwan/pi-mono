@@ -42,6 +42,10 @@ export class CustomMessageComponent extends Container {
 		}
 	}
 
+	getExpanded(): boolean {
+		return this._expanded;
+	}
+
 	override invalidate(): void {
 		super.invalidate();
 		this.rebuild();

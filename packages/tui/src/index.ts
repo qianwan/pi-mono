@@ -45,6 +45,8 @@ export {
 	parseKey,
 	setKittyProtocolActive,
 } from "./keys.js";
+// Mouse event support
+export { isMouseSequence, type MouseEvent, parseMouseSequence } from "./mouse.js";
 // Input buffering for batch splitting
 export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.js";
 // Terminal interface and implementations
@@ -76,6 +78,7 @@ export {
 	type TerminalCapabilities,
 } from "./terminal-image.js";
 export {
+	type ChildLayout,
 	type Component,
 	Container,
 	CURSOR_MARKER,

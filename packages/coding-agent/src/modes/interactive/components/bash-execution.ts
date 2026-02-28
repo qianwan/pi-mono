@@ -74,6 +74,10 @@ export class BashExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
+	getExpanded(): boolean {
+		return this.expanded;
+	}
+
 	override invalidate(): void {
 		super.invalidate();
 		this.updateDisplay();

@@ -23,6 +23,7 @@ import type {
 	EditorTheme,
 	KeyId,
 	MarkdownTheme,
+	MouseEvent,
 	OverlayHandle,
 	OverlayOptions,
 	SlashCommand,
@@ -117,10 +118,18 @@ import {
 /** Interface for components that can be expanded/collapsed */
 interface Expandable {
 	setExpanded(expanded: boolean): void;
+	getExpanded(): boolean;
 }
 
 function isExpandable(obj: unknown): obj is Expandable {
-	return typeof obj === "object" && obj !== null && "setExpanded" in obj && typeof obj.setExpanded === "function";
+	return (
+		typeof obj === "object" &&
+		obj !== null &&
+		"setExpanded" in obj &&
+		typeof obj.setExpanded === "function" &&
+		"getExpanded" in obj &&
+		typeof obj.getExpanded === "function"
+	);
 }
 
 type CompactionQueuedMessage = {
@@ -184,6 +193,10 @@ export class InteractiveMode {
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
+	// Per-component expansion overrides (components toggled individually via mouse click)
+	private toolExpandOverrides = new Set<Expandable>();
+	// Mouse listener cleanup
+	private removeMouseListener?: () => void;
 
 	// Thinking block visibility state
 	private hideThinkingBlock = false;
@@ -469,6 +482,9 @@ export class InteractiveMode {
 		// Start the UI
 		this.ui.start();
 		this.isInitialized = true;
+
+		// Enable mouse reporting and set up click-to-expand handler
+		this.setupMouseHandler();
 
 		// Set terminal title
 		this.updateTerminalTitle();
@@ -2716,12 +2732,75 @@ export class InteractiveMode {
 
 	private setToolsExpanded(expanded: boolean): void {
 		this.toolOutputExpanded = expanded;
+		// Clear per-component overrides — global toggle resets everything
+		this.toolExpandOverrides.clear();
 		for (const child of this.chatContainer.children) {
 			if (isExpandable(child)) {
 				child.setExpanded(expanded);
 			}
 		}
 		this.ui.requestRender();
+	}
+
+	/**
+	 * Set up mouse reporting and click-to-expand handler.
+	 * Left-clicking an expandable component toggles its individual expand state.
+	 */
+	private setupMouseHandler(): void {
+		this.ui.terminal.enableMouse();
+		this.removeMouseListener = this.ui.addMouseListener((event: MouseEvent) => {
+			if (event.button === "scroll-up") {
+				this.ui.scrollBy(1);
+				return true;
+			}
+			if (event.button === "scroll-down") {
+				this.ui.scrollBy(-1);
+				return true;
+			}
+			if (event.action !== "press" || event.button !== "left") return undefined;
+
+			const leaf = this.ui.componentAtScreenRow(event.y);
+			if (!leaf) return undefined;
+
+			// Walk chatContainer.children to find the top-level expandable that contains the clicked leaf
+			const target = this.findExpandableAncestor(leaf);
+			if (!target) return undefined;
+
+			// Toggle this component's expand state individually
+			const newState = !target.getExpanded();
+			target.setExpanded(newState);
+
+			// Track override so global toggle can reset it
+			if (newState !== this.toolOutputExpanded) {
+				this.toolExpandOverrides.add(target);
+			} else {
+				this.toolExpandOverrides.delete(target);
+			}
+
+			this.ui.requestRender();
+			return true;
+		});
+	}
+
+	/**
+	 * Find the expandable chatContainer child that contains the given leaf component.
+	 * Walks chatContainer.children and checks if the leaf is a descendant.
+	 */
+	private findExpandableAncestor(leaf: Component): Expandable | null {
+		for (const child of this.chatContainer.children) {
+			if (!isExpandable(child)) continue;
+			if (child === (leaf as unknown)) return child;
+			if (child instanceof Container && this.containsComponent(child, leaf)) return child;
+		}
+		return null;
+	}
+
+	private containsComponent(container: Container, target: Component): boolean {
+		for (const child of container.children) {
+			if (child === target) return true;
+			if (child instanceof Container && this.containsComponent(child, target)) return true;
+		}
+		return false;
 	}
 
 	private toggleThinkingBlockVisibility(): void {
@@ -4388,6 +4467,7 @@ export class InteractiveMode {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
+		this.removeMouseListener?.();
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();

@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { isKeyRelease, matchesKey } from "./keys.js";
+import { isMouseSequence, type MouseEvent, parseMouseSequence } from "./mouse.js";
 import type { Terminal } from "./terminal.js";
 import { getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.js";
 import { extractSegments, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.js";
@@ -41,6 +42,7 @@ export interface Component {
 
 type InputListenerResult = { consume?: boolean; data?: string } | undefined;
 type InputListener = (data: string) => InputListenerResult;
+type MouseListener = (event: MouseEvent) => boolean | undefined;
 
 /**
  * Interface for components that can receive focus and display a hardware cursor.
@@ -160,10 +162,22 @@ export interface OverlayHandle {
 }
 
 /**
+ * Layout information for a child component within a Container, recorded during render.
+ */
+export interface ChildLayout {
+	component: Component;
+	/** Starting row offset within the parent container */
+	startRow: number;
+	/** Number of lines rendered by this component */
+	lineCount: number;
+}
+
+/**
  * Container - a component that contains other components
  */
 export class Container implements Component {
 	children: Component[] = [];
+	private _childLayouts: ChildLayout[] = [];
 
 	addChild(component: Component): void {
 		this.children.push(component);
@@ -188,10 +202,36 @@ export class Container implements Component {
 
 	render(width: number): string[] {
 		const lines: string[] = [];
+		this._childLayouts = [];
 		for (const child of this.children) {
-			lines.push(...child.render(width));
+			const startRow = lines.length;
+			const childLines = child.render(width);
+			lines.push(...childLines);
+			this._childLayouts.push({ component: child, startRow, lineCount: childLines.length });
 		}
 		return lines;
+	}
+
+	/** Layout snapshot of child components from the last render pass (read-only). */
+	get childLayouts(): readonly ChildLayout[] {
+		return this._childLayouts;
+	}
+
+	/**
+	 * Find the component at a given row offset within this container.
+	 * Recurses into nested Containers to find the deepest matching component.
+	 * @param localRow - Row offset relative to this container's content start
+	 */
+	componentAtRow(localRow: number): Component | null {
+		for (const { component, startRow, lineCount } of this._childLayouts) {
+			if (localRow >= startRow && localRow < startRow + lineCount) {
+				if (component instanceof Container) {
+					return component.componentAtRow(localRow - startRow) ?? component;
+				}
+				return component;
+			}
+		}
+		return null;
 	}
 }
 
@@ -204,6 +244,7 @@ export class TUI extends Container {
 	private previousWidth = 0;
 	private focusedComponent: Component | null = null;
 	private inputListeners = new Set<InputListener>();
+	private mouseListeners = new Set<MouseListener>();
 
 	/** Global callback for debug key (Shift+Ctrl+D). Called before input is forwarded to focused component. */
 	public onDebug?: () => void;
@@ -214,7 +255,10 @@ export class TUI extends Container {
 	private cellSizeQueryPending = false;
 	private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
 	private clearOnShrink = process.env.PI_CLEAR_ON_SHRINK === "1"; // Clear empty rows when content shrinks (default: off)
-	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
+	private scrollOffset = 0; // Lines scrolled up from bottom
+	private contentLineCount = 0; // Total lines in full render
+	private viewportTop = 0; // Top line index of visible viewport in full render
+	private maxLinesRendered = 0; // Track last rendered line count (viewport height)
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private fullRedrawCount = 0;
 	private stopped = false;
@@ -263,6 +307,24 @@ export class TUI extends Container {
 	 */
 	setClearOnShrink(enabled: boolean): void {
 		this.clearOnShrink = enabled;
+	}
+
+	/**
+	 * Scroll the viewport by a number of lines.
+	 * Positive values scroll up (older content), negative values scroll down.
+	 */
+	scrollBy(lines: number): void {
+		if (lines === 0) return;
+		const maxScrollOffset = Math.max(0, this.contentLineCount - this.terminal.rows);
+		this.scrollOffset = Math.max(0, Math.min(this.scrollOffset + lines, maxScrollOffset));
+		this.requestRender();
+	}
+
+	/** Reset scroll to the latest content. */
+	scrollToBottom(): void {
+		if (this.scrollOffset === 0) return;
+		this.scrollOffset = 0;
+		this.requestRender();
 	}
 
 	setFocus(component: Component | null): void {
@@ -392,6 +454,31 @@ export class TUI extends Container {
 		this.inputListeners.delete(listener);
 	}
 
+	/**
+	 * Register a mouse event listener.
+	 * Listener returns true to consume the event (stops further propagation).
+	 * @returns Cleanup function to remove the listener
+	 */
+	addMouseListener(listener: MouseListener): () => void {
+		this.mouseListeners.add(listener);
+		return () => {
+			this.mouseListeners.delete(listener);
+		};
+	}
+
+	removeMouseListener(listener: MouseListener): void {
+		this.mouseListeners.delete(listener);
+	}
+
+	/**
+	 * Find the component at a given screen row (1-based, as reported by SGR mouse events).
+	 * Converts viewport coordinates to content coordinates and delegates to Container.componentAtRow().
+	 */
+	componentAtScreenRow(screenRow: number): Component | null {
+		const absoluteRow = this.viewportTop + (screenRow - 1);
+		return this.componentAtRow(absoluteRow);
+	}
+
 	private queryCellSize(): void {
 		// Only query if terminal supports images (cell size is only used for image rendering)
 		if (!getCapabilities().images) {
@@ -439,6 +526,24 @@ export class TUI extends Container {
 	}
 
 	private handleInput(data: string): void {
+		// Mouse sequence detection — before inputListeners and keyboard handling
+		if (isMouseSequence(data)) {
+			const event = parseMouseSequence(data);
+			if (!event) return;
+
+			let consumed = false;
+			for (const listener of this.mouseListeners) {
+				if (listener(event)) {
+					consumed = true;
+					break;
+				}
+			}
+			if (consumed) {
+				this.requestRender();
+			}
+			return;
+		}
+
 		if (this.inputListeners.size > 0) {
 			let current = data;
 			for (const listener of this.inputListeners) {
@@ -711,8 +816,7 @@ export class TUI extends Container {
 		}
 
 		// Ensure result covers the terminal working area to keep overlay positioning stable across resizes.
-		// maxLinesRendered can exceed current content length after a shrink; pad to keep viewportStart consistent.
-		const workingHeight = Math.max(this.maxLinesRendered, minLinesNeeded);
+		const workingHeight = Math.max(lines.length, minLinesNeeded);
 
 		// Extend result with empty lines if content is too short for overlay placement or working area
 		while (result.length < workingHeight) {
@@ -849,7 +953,7 @@ export class TUI extends Container {
 		if (this.stopped) return;
 		const width = this.terminal.columns;
 		const height = this.terminal.rows;
-		let viewportTop = Math.max(0, this.maxLinesRendered - height);
+		let viewportTop = 0;
 		let prevViewportTop = this.previousViewportTop;
 		let hardwareCursorRow = this.hardwareCursorRow;
 		const computeLineDiff = (targetRow: number): number => {
@@ -860,6 +964,21 @@ export class TUI extends Container {
 
 		// Render all components to get new lines
 		let newLines = this.render(width);
+		const contentDelta = newLines.length - this.contentLineCount;
+		if (contentDelta > 0 && this.scrollOffset > 0) {
+			this.scrollOffset += contentDelta;
+		}
+		this.contentLineCount = newLines.length;
+
+		const maxScrollOffset = Math.max(0, newLines.length - height);
+		this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, maxScrollOffset));
+		this.viewportTop = Math.max(0, newLines.length - height - this.scrollOffset);
+
+		const visibleLines = newLines.slice(this.viewportTop, this.viewportTop + height);
+		while (visibleLines.length < height) {
+			visibleLines.push("");
+		}
+		newLines = visibleLines;
 
 		// Composite overlays into the rendered lines (before differential compare)
 		if (this.overlayStack.length > 0) {
@@ -887,13 +1006,8 @@ export class TUI extends Container {
 			this.terminal.write(buffer);
 			this.cursorRow = Math.max(0, newLines.length - 1);
 			this.hardwareCursorRow = this.cursorRow;
-			// Reset max lines when clearing, otherwise track growth
-			if (clear) {
-				this.maxLinesRendered = newLines.length;
-			} else {
-				this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
-			}
-			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
+			this.maxLinesRendered = newLines.length;
+			this.previousViewportTop = 0;
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousWidth = width;
@@ -957,7 +1071,7 @@ export class TUI extends Container {
 		// No changes - but still need to update hardware cursor position if it moved
 		if (firstChanged === -1) {
 			this.positionHardwareCursor(cursorPos, newLines.length);
-			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
+			this.previousViewportTop = 0;
 			return;
 		}
 
@@ -996,7 +1110,7 @@ export class TUI extends Container {
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousWidth = width;
-			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
+			this.previousViewportTop = 0;
 			return;
 		}
 
@@ -1135,9 +1249,8 @@ export class TUI extends Container {
 		// hardwareCursorRow tracks actual terminal cursor position (for movement)
 		this.cursorRow = Math.max(0, newLines.length - 1);
 		this.hardwareCursorRow = finalCursorRow;
-		// Track terminal's working area (grows but doesn't shrink unless cleared)
-		this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
-		this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
+		this.maxLinesRendered = newLines.length;
+		this.previousViewportTop = 0;
 
 		// Position hardware cursor for IME
 		this.positionHardwareCursor(cursorPos, newLines.length);
