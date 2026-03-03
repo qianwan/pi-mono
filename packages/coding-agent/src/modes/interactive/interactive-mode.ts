@@ -32,12 +32,15 @@ import {
 	CombinedAutocompleteProvider,
 	type Component,
 	Container,
+	doubleClickSelect,
 	fuzzyFilter,
+	indexToScreenCol,
 	Loader,
 	Markdown,
 	matchesKey,
 	ProcessTerminal,
 	Spacer,
+	screenColToIndex,
 	sliceByColumn,
 	stripAnsi,
 	Text,
@@ -2753,6 +2756,10 @@ export class InteractiveMode {
 		let pendingExpandTarget: Expandable | null = null;
 		let pressStart: { x: number; y: number } | null = null;
 		let hasDragged = false;
+		let lastClickTime = 0;
+		let lastClickPos = { x: 0, y: 0 };
+		const DOUBLE_CLICK_MS = 200;
+		let expandTimer: ReturnType<typeof setTimeout> | null = null;
 		const getExpandableLeaf = (row: number): Component | null => {
 			const leaf = this.ui.componentAtScreenRow(row);
 			return leaf instanceof Spacer ? null : leaf;
@@ -2771,6 +2778,11 @@ export class InteractiveMode {
 			if (event.action === "press") {
 				pressStart = { x: event.x, y: event.y };
 				hasDragged = false;
+				// Cancel any pending deferred expand from previous click
+				if (expandTimer) {
+					clearTimeout(expandTimer);
+					expandTimer = null;
+				}
 				const hadSelection = this.ui.hasScreenSelection();
 				this.ui.clearScreenSelection();
 				if (hadSelection) {
@@ -2808,29 +2820,69 @@ export class InteractiveMode {
 				}
 				hasDragged = false;
 
+				// Double-click detection: check timing before expand-toggle
+				const now = Date.now();
+				const isDoubleClick =
+					now - lastClickTime < DOUBLE_CLICK_MS && event.x === lastClickPos.x && event.y === lastClickPos.y;
+				lastClickTime = now;
+				lastClickPos = { x: event.x, y: event.y };
+
+				if (isDoubleClick) {
+					pendingExpandTarget = null;
+					if (expandTimer) {
+						clearTimeout(expandTimer);
+						expandTimer = null;
+					}
+					const totalLines = this.ui.terminal.rows;
+					const clickedLine = stripAnsi(this.ui.getScreenLine(event.y));
+					const charIndex = screenColToIndex(clickedLine, event.x - 1);
+					const range = doubleClickSelect(
+						(row) => stripAnsi(this.ui.getScreenLine(row + 1)),
+						totalLines,
+						event.y - 1,
+						charIndex,
+					);
+					if (range) {
+						// Convert 0-based string indices back to 1-based screen columns
+						const startLine = stripAnsi(this.ui.getScreenLine(range.startRow + 1));
+						const endLine = stripAnsi(this.ui.getScreenLine(range.endRow + 1));
+						const startScreenCol = indexToScreenCol(startLine, range.startCol) + 1;
+						const endScreenCol = indexToScreenCol(endLine, range.endCol) + 1;
+						this.ui.setScreenSelection(startScreenCol, range.startRow + 1, endScreenCol, range.endRow + 1);
+						this.copyScreenSelection(
+							{ x: startScreenCol, y: range.startRow + 1 },
+							{ x: endScreenCol, y: range.endRow + 1 },
+						);
+					}
+					return true;
+				}
+
+				// Defer expand-toggle to allow double-click detection
 				const pressTarget = pendingExpandTarget;
 				pendingExpandTarget = null;
 				if (!pressTarget) return undefined;
 
-				// Verify release is on the same expandable component
 				const leaf = getExpandableLeaf(event.y);
 				const releaseTarget = leaf ? this.findExpandableAncestor(leaf) : null;
 				if (releaseTarget !== pressTarget) return undefined;
 
 				const target = pressTarget;
-				const newState = !target.getExpanded();
-				this.ui.lockViewportTop(this.ui.getViewportTop(), {
-					forceFullRenderOnBottom: !newState,
-				});
-				target.setExpanded(newState);
+				expandTimer = setTimeout(() => {
+					expandTimer = null;
+					const newState = !target.getExpanded();
+					this.ui.lockViewportTop(this.ui.getViewportTop(), {
+						forceFullRenderOnBottom: !newState,
+					});
+					target.setExpanded(newState);
 
-				if (newState !== this.toolOutputExpanded) {
-					this.toolExpandOverrides.add(target);
-				} else {
-					this.toolExpandOverrides.delete(target);
-				}
+					if (newState !== this.toolOutputExpanded) {
+						this.toolExpandOverrides.add(target);
+					} else {
+						this.toolExpandOverrides.delete(target);
+					}
 
-				this.ui.requestRender();
+					this.ui.requestRender();
+				}, DOUBLE_CLICK_MS);
 				return true;
 			}
 
