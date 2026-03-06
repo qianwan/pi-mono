@@ -2750,6 +2750,7 @@ export class InteractiveMode {
 		let hasDragged = false;
 		let lastClickTime = 0;
 		let lastClickPos = { x: 0, y: 0 };
+		let clickCount = 0;
 		const DOUBLE_CLICK_MS = 200;
 		let expandTimer: ReturnType<typeof setTimeout> | null = null;
 		const getExpandableLeaf = (row: number): Component | null => {
@@ -2775,10 +2776,15 @@ export class InteractiveMode {
 					clearTimeout(expandTimer);
 					expandTimer = null;
 				}
+				const now = Date.now();
+				const isRepeatClick =
+					event.x === lastClickPos.x && event.y === lastClickPos.y && now - lastClickTime < DOUBLE_CLICK_MS;
 				const hadSelection = this.ui.hasScreenSelection();
-				this.ui.clearScreenSelection();
-				if (hadSelection) {
-					// Click only dismisses selection; don't start expand tracking
+				if (hadSelection && !isRepeatClick) {
+					this.ui.clearScreenSelection();
+				}
+				if (hadSelection || isRepeatClick) {
+					// Don't clear or expand while multi-clicking/clearing a selection.
 					pendingExpandTarget = null;
 				} else {
 					const leaf = getExpandableLeaf(event.y);
@@ -2804,6 +2810,7 @@ export class InteractiveMode {
 				// Drag selection: extract text and copy to clipboard
 				if (hasDragged && dragStart) {
 					hasDragged = false;
+					clickCount = 0;
 					pendingExpandTarget = null;
 					// Update selection to final position (keep highlight visible)
 					this.ui.setScreenSelection(dragStart.x, dragStart.y, event.x, event.y);
@@ -2812,26 +2819,50 @@ export class InteractiveMode {
 				}
 				hasDragged = false;
 
-				// Double-click detection: check timing before expand-toggle
+				// Double/triple-click detection: check timing before expand-toggle
 				const now = Date.now();
-				const isDoubleClick =
-					now - lastClickTime < DOUBLE_CLICK_MS && event.x === lastClickPos.x && event.y === lastClickPos.y;
+				const samePos = event.x === lastClickPos.x && event.y === lastClickPos.y;
+				if (samePos && now - lastClickTime < DOUBLE_CLICK_MS) {
+					clickCount += 1;
+				} else {
+					clickCount = 1;
+				}
 				lastClickTime = now;
 				lastClickPos = { x: event.x, y: event.y };
 
-				if (isDoubleClick) {
+				if (clickCount === 3) {
+					clickCount = 0;
 					pendingExpandTarget = null;
 					if (expandTimer) {
 						clearTimeout(expandTimer);
 						expandTimer = null;
 					}
+					const screenLine = this.ui.getScreenLine(event.y);
+					const lineWidth = visibleWidth(screenLine);
+					if (lineWidth > 0) {
+						const start = { x: 1, y: event.y };
+						const end = { x: lineWidth + 1, y: event.y };
+						this.ui.setScreenSelection(start.x, start.y, end.x, end.y);
+						this.copyScreenSelection(start, end);
+					}
+					return true;
+				}
+
+				if (clickCount === 2) {
+					pendingExpandTarget = null;
+					if (expandTimer) {
+						clearTimeout(expandTimer);
+						expandTimer = null;
+					}
+					const clickRow = event.y;
+					const clickCol = event.x;
 					const totalLines = this.ui.terminal.rows;
-					const clickedLine = stripAnsi(this.ui.getScreenLine(event.y));
-					const charIndex = screenColToIndex(clickedLine, event.x - 1);
+					const clickedLine = stripAnsi(this.ui.getScreenLine(clickRow));
+					const charIndex = screenColToIndex(clickedLine, clickCol - 1);
 					const range = doubleClickSelect(
 						(row) => stripAnsi(this.ui.getScreenLine(row + 1)),
 						totalLines,
-						event.y - 1,
+						clickRow - 1,
 						charIndex,
 					);
 					if (range) {

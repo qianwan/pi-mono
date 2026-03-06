@@ -1117,9 +1117,9 @@ export class TUI extends Container {
 			visibleLines.push("");
 		}
 		const viewportEnd = this.viewportTop + height - 1;
-		const sanitizedLines = [...visibleLines];
-		const imagePlaceholder = sliceByColumn("[Image hidden]", 0, width, true);
+		const sanitizedLines = imageRanges.length > 0 ? [...visibleLines] : visibleLines;
 		if (imageRanges.length > 0) {
+			let imagePlaceholder: string | undefined;
 			for (const range of imageRanges) {
 				const intersects = range.end >= this.viewportTop && range.start <= viewportEnd;
 				if (!intersects) continue;
@@ -1136,14 +1136,20 @@ export class TUI extends Container {
 					for (let i = start; i <= end; i++) {
 						sanitizedLines[i] = "";
 					}
-					sanitizedLines[end] = croppedLine ?? imagePlaceholder;
+					if (croppedLine) {
+						sanitizedLines[end] = croppedLine;
+					} else {
+						if (imagePlaceholder === undefined) {
+							imagePlaceholder = sliceByColumn("[Image hidden]", 0, width, true);
+						}
+						sanitizedLines[end] = imagePlaceholder;
+					}
 				}
 			}
 		}
 		const caps = getCapabilities();
 		const shouldClearImages = caps.images === "kitty" && (fullHasImages || this.hadImages);
-		const previousHadImages = this.previousLines.some((line) => isImageLine(line));
-		const forceImageFullRender = fullHasImages || previousHadImages;
+		const forceImageFullRender = fullHasImages || this.hadImages;
 		const imageClear = shouldClearImages ? deleteAllKittyImages() : "";
 		this.hadImages = fullHasImages;
 
@@ -1259,7 +1265,6 @@ export class TUI extends Container {
 		// No changes - but still need to update hardware cursor position if it moved
 		if (firstChanged === -1) {
 			this.positionHardwareCursor(cursorPos, newLines.length);
-			this.previousViewportTop = 0;
 			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
 			this.previousHeight = height;
 			return;
@@ -1300,7 +1305,6 @@ export class TUI extends Container {
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousWidth = width;
-			this.previousViewportTop = 0;
 			this.previousHeight = height;
 			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
 			return;

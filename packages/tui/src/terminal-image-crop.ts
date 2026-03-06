@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { crop, PhotonImage } from "@silvia-odwyer/photon-node";
 import { encodeITerm2, encodeKitty, getCellDimensions } from "./terminal-image.js";
 
@@ -11,6 +12,48 @@ type ParsedImageLine = {
 
 const KITTY_SEGMENT_RE = /\x1b_G([^\x1b]*?);([A-Za-z0-9+/=]*)\x1b\\/g;
 const ITERM2_RE = /\x1b\]1337;File=([^:]*):([A-Za-z0-9+/=]+)\x07/;
+const MAX_CROPPED_IMAGE_CACHE_ENTRIES = 1024;
+
+type CroppedCacheValue = string | null;
+const croppedImageCache = new Map<string, CroppedCacheValue>();
+
+function getFromLruCache<K, V>(cache: Map<K, V>, key: K): V | undefined {
+	const value = cache.get(key);
+	if (value === undefined) return undefined;
+	cache.delete(key);
+	cache.set(key, value);
+	return value;
+}
+
+function setInLruCache<K, V>(cache: Map<K, V>, key: K, value: V, maxEntries: number): void {
+	if (cache.has(key)) {
+		cache.delete(key);
+	}
+	cache.set(key, value);
+	if (cache.size <= maxEntries) return;
+	const oldestKey = cache.keys().next().value;
+	if (oldestKey !== undefined) {
+		cache.delete(oldestKey);
+	}
+}
+
+function hashBase64Data(base64Data: string): string {
+	return createHash("sha1").update(base64Data).digest("base64url");
+}
+
+function buildCropCacheKey(parsed: ParsedImageLine, params: ImageCropParams): string {
+	const cellDimensions = getCellDimensions();
+	const sourceHash = hashBase64Data(parsed.base64Data);
+	return [
+		sourceHash,
+		parsed.protocol,
+		parsed.maxWidthCells,
+		cellDimensions.widthPx,
+		cellDimensions.heightPx,
+		params.clipTopRows,
+		params.visibleRows,
+	].join(":");
+}
 
 function parseKittyLine(line: string): ParsedImageLine | null {
 	let base64Data = "";
@@ -81,6 +124,12 @@ export function renderCroppedImageLine(line: string, params: ImageCropParams): s
 	const parsed = parseImageLine(lineContent);
 	if (!parsed) return null;
 
+	const cacheKey = buildCropCacheKey(parsed, params);
+	const cachedResult = getFromLruCache(croppedImageCache, cacheKey);
+	if (cachedResult !== undefined) {
+		return cachedResult;
+	}
+
 	const bytes = Buffer.from(parsed.base64Data, "base64");
 	let image: PhotonImage | undefined;
 	let cropped: PhotonImage | undefined;
@@ -123,8 +172,11 @@ export function renderCroppedImageLine(line: string, params: ImageCropParams): s
 						height: params.visibleRows,
 						preserveAspectRatio: true,
 					});
-		return moveUp + sequence;
+		const result = moveUp + sequence;
+		setInLruCache(croppedImageCache, cacheKey, result, MAX_CROPPED_IMAGE_CACHE_ENTRIES);
+		return result;
 	} catch {
+		setInLruCache(croppedImageCache, cacheKey, null, MAX_CROPPED_IMAGE_CACHE_ENTRIES);
 		return null;
 	} finally {
 		cropped?.free();
