@@ -252,6 +252,7 @@ export class TUI extends Container {
 	public terminal: Terminal;
 	private previousLines: string[] = [];
 	private previousWidth = 0;
+	private previousHeight = 0;
 	private focusedComponent: Component | null = null;
 	private inputListeners = new Set<InputListener>();
 	private mouseListeners = new Set<MouseListener>();
@@ -582,6 +583,7 @@ export class TUI extends Container {
 		if (force) {
 			this.previousLines = [];
 			this.previousWidth = -1; // -1 triggers widthChanged, forcing a full clear
+			this.previousHeight = -1; // -1 triggers heightChanged, forcing a full clear
 			this.cursorRow = 0;
 			this.hardwareCursorRow = 0;
 			this.maxLinesRendered = 0;
@@ -1162,8 +1164,9 @@ export class TUI extends Container {
 
 		newLines = this.applyLineResets(newLines);
 
-		// Width changed - need full re-render (line wrapping changes)
+		// Width or height changed - need full re-render
 		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
+		const heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
 
 		// Helper to clear scrollback and viewport and render all new lines
 		const fullRender = (clear: boolean): void => {
@@ -1183,6 +1186,7 @@ export class TUI extends Container {
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousWidth = width;
+			this.previousHeight = height;
 		};
 
 		const debugRedraw = process.env.PI_DEBUG_REDRAW === "1";
@@ -1194,15 +1198,15 @@ export class TUI extends Container {
 		};
 
 		// First render - just output everything without clearing (assumes clean screen)
-		if (this.previousLines.length === 0 && !widthChanged) {
+		if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
 			logRedraw("first render");
 			fullRender(false);
 			return;
 		}
 
-		// Width changed - full re-render (line wrapping changes)
-		if (widthChanged) {
-			logRedraw(`width changed (${this.previousWidth} -> ${width})`);
+		// Width or height changed - full re-render
+		if (widthChanged || heightChanged) {
+			logRedraw(`terminal size changed (${this.previousWidth}x${this.previousHeight} -> ${width}x${height})`);
 			fullRender(true);
 			return;
 		}
@@ -1256,6 +1260,8 @@ export class TUI extends Container {
 		if (firstChanged === -1) {
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousViewportTop = 0;
+			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
+			this.previousHeight = height;
 			return;
 		}
 
@@ -1295,6 +1301,8 @@ export class TUI extends Container {
 			this.previousLines = newLines;
 			this.previousWidth = width;
 			this.previousViewportTop = 0;
+			this.previousHeight = height;
+			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
 			return;
 		}
 
@@ -1441,6 +1449,7 @@ export class TUI extends Container {
 
 		this.previousLines = newLines;
 		this.previousWidth = width;
+		this.previousHeight = height;
 	}
 
 	/**

@@ -37,6 +37,7 @@ export {
 } from "./keybindings.js";
 // Keyboard input handling
 export {
+	decodeKittyPrintable,
 	isKeyRelease,
 	isKeyRepeat,
 	isKittyProtocolActive,
