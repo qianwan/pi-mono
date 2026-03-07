@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-03-07
+
+### Added
+
+- Added non-capturing overlays via `OverlayOptions.nonCapturing` and new `OverlayHandle` methods: `focus()`, `unfocus()`, and `isFocused()` for programmatic overlay focus control ([#1916](https://github.com/badlogic/pi-mono/pull/1916) by [@nicobailon](https://github.com/nicobailon))
+
+### Changed
+
+- Overlay compositing order now uses focus order so focused overlays render on top while preserving stack semantics for show/hide behavior ([#1916](https://github.com/badlogic/pi-mono/pull/1916) by [@nicobailon](https://github.com/nicobailon))
+
+### Fixed
+
+- Fixed automatic focus restoration to skip non-capturing overlays and fixed `hideOverlay()` to only reassign focus when the popped overlay had focus ([#1916](https://github.com/badlogic/pi-mono/pull/1916) by [@nicobailon](https://github.com/nicobailon))
+
 ## [0.56.3] - 2026-03-06
 
 ### Added

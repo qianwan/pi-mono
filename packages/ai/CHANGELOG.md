@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-03-07
+
+### Added
+
+- Added per-request payload inspection and replacement hook support via `beforeProviderRequest`, allowing callers to inspect or replace provider payloads before sending.
+
 ## [0.56.3] - 2026-03-06
 
 ### Added
