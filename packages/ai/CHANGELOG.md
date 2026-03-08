@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.57.1] - 2026-03-07
+
+### Fixed
+
+- Fixed context overflow detection to recognize z.ai `model_context_window_exceeded` errors surfaced through OpenAI-compatible stop reason handling ([#1937](https://github.com/badlogic/pi-mono/issues/1937))
+
 ## [0.57.0] - 2026-03-07
 
 ### Added
