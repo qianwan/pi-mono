@@ -392,9 +392,12 @@ function buildParams(model: Model<"openai-completions">, context: Context, optio
 		params.tool_choice = options.toolChoice;
 	}
 
-	if ((compat.thinkingFormat === "zai" || compat.thinkingFormat === "qwen") && model.reasoning) {
-		// Both Z.ai and Qwen use enable_thinking: boolean
+	if (compat.thinkingFormat === "zai" && model.reasoning) {
 		(params as any).enable_thinking = !!options?.reasoningEffort;
+	} else if (compat.thinkingFormat === "qwen" && model.reasoning) {
+		(params as any).enable_thinking = !!options?.reasoningEffort;
+	} else if (compat.thinkingFormat === "qwen-chat-template" && model.reasoning) {
+		(params as any).chat_template_kwargs = { enable_thinking: !!options?.reasoningEffort };
 	} else if (options?.reasoningEffort && model.reasoning && compat.supportsReasoningEffort) {
 		// OpenAI-style reasoning_effort
 		(params as any).reasoning_effort = mapReasoningEffort(options.reasoningEffort, compat.reasoningEffortMap);
@@ -730,10 +733,11 @@ function parseChunkUsage(
 	return usage;
 }
 
-function mapStopReason(reason: ChatCompletionChunk.Choice["finish_reason"]): StopReason {
+function mapStopReason(reason: ChatCompletionChunk.Choice["finish_reason"] | string): StopReason {
 	if (reason === null) return "stop";
 	switch (reason) {
 		case "stop":
+		case "end":
 			return "stop";
 		case "length":
 			return "length";
@@ -743,7 +747,7 @@ function mapStopReason(reason: ChatCompletionChunk.Choice["finish_reason"]): Sto
 		case "content_filter":
 			return "error";
 		default: {
-			const _exhaustive: never = reason;
+			const _exhaustive: never = reason as never;
 			throw new Error(`Unhandled stop reason: ${_exhaustive}`);
 		}
 	}
