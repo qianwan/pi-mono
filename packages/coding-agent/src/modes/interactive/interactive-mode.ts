@@ -481,10 +481,6 @@ export class InteractiveMode {
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
 
-		// Start the UI
-		this.ui.start();
-		this.isInitialized = true;
-
 		// Enable mouse reporting and set up click-to-expand handler
 		this.setupMouseHandler();
 
