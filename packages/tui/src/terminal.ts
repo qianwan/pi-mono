@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
+import { createRuntimeGamepadInputSource } from "./gamepad/runtime-source.js";
+import type { GamepadEvent, GamepadEventListener, GamepadInputSource } from "./gamepad/types.js";
 import { setKittyProtocolActive } from "./keys.js";
 import { StdinBuffer } from "./stdin-buffer.js";
 
@@ -51,6 +53,10 @@ export interface Terminal {
 	// Mouse reporting
 	enableMouse(): void; // Enable SGR mouse reporting (button events)
 	disableMouse(): void; // Disable SGR mouse reporting
+
+	// Gamepad input (if available)
+	addGamepadListener?(listener: GamepadEventListener): () => void;
+	removeGamepadListener?(listener: GamepadEventListener): void;
 }
 
 /**
@@ -66,6 +72,8 @@ export class ProcessTerminal implements Terminal {
 	private stdinDataHandler?: (data: string) => void;
 	private writeLogPath = process.env.PI_TUI_WRITE_LOG || "";
 	private _mouseActive = false;
+	private gamepadInputSource?: GamepadInputSource;
+	private gamepadListeners = new Set<GamepadEventListener>();
 
 	get kittyProtocolActive(): boolean {
 		return this._kittyProtocolActive;
@@ -105,6 +113,23 @@ export class ProcessTerminal implements Terminal {
 		// The query handler intercepts input temporarily, then installs the user's handler
 		// See: https://sw.kovidgoyal.net/kitty/keyboard-protocol/
 		this.queryAndEnableKittyProtocol();
+
+		this.ensureGamepadInputSource();
+	}
+
+	addGamepadListener(listener: GamepadEventListener): () => void {
+		this.gamepadListeners.add(listener);
+		this.ensureGamepadInputSource();
+		return () => {
+			this.removeGamepadListener(listener);
+		};
+	}
+
+	removeGamepadListener(listener: GamepadEventListener): void {
+		this.gamepadListeners.delete(listener);
+		if (this.gamepadListeners.size === 0 && process.env.PI_GAMEPAD !== "1") {
+			this.teardownGamepadInputSource();
+		}
 	}
 
 	/**
@@ -252,6 +277,8 @@ export class ProcessTerminal implements Terminal {
 	}
 
 	stop(): void {
+		this.teardownGamepadInputSource();
+
 		// Disable bracketed paste mode
 		process.stdout.write("\x1b[?2004l");
 
@@ -366,5 +393,33 @@ export class ProcessTerminal implements Terminal {
 		if (!this._mouseActive) return;
 		process.stdout.write("\x1b[?1006l\x1b[?1002l");
 		this._mouseActive = false;
+	}
+
+	private ensureGamepadInputSource(): void {
+		if (this.gamepadInputSource) return;
+
+		const source = createRuntimeGamepadInputSource({
+			force: this.gamepadListeners.size > 0,
+		});
+		if (!source) return;
+
+		this.gamepadInputSource = source;
+		source.start((event) => this.handleGamepadEvent(event));
+	}
+
+	private teardownGamepadInputSource(): void {
+		if (!this.gamepadInputSource) return;
+		this.gamepadInputSource.stop();
+		this.gamepadInputSource = undefined;
+	}
+
+	private handleGamepadEvent(event: GamepadEvent): void {
+		for (const listener of this.gamepadListeners) {
+			listener(event);
+		}
+
+		if (process.env.PI_GAMEPAD === "1" && event.mappedKeySequence && this.inputHandler) {
+			this.inputHandler(event.mappedKeySequence);
+		}
 	}
 }

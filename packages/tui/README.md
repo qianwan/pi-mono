@@ -564,6 +564,68 @@ if (matchesKey(data, Key.enter)) {
 - With modifiers: `Key.ctrl("c")`, `Key.shift("tab")`, `Key.alt("left")`, `Key.ctrlShift("p")`
 - String format also works: `"enter"`, `"ctrl+c"`, `"shift+tab"`, `"ctrl+shift+p"`
 
+## Native Gamepad Input (Experimental)
+
+Detailed integration guide for game apps:
+
+- `docs/gamepad-integration.md`
+
+`ProcessTerminal` can provide runtime gamepad events for app-layer listeners and can translate gamepad input into existing key sequences.
+
+App-layer listener API:
+
+```typescript
+import { ProcessTerminal, type GamepadEvent } from "@mariozechner/pi-tui";
+
+const terminal = new ProcessTerminal();
+const unsubscribe = terminal.addGamepadListener((event: GamepadEvent) => {
+  console.log(event.kind, event.name, event.value, event.mappedKeySequence);
+});
+```
+
+Enable it:
+
+```bash
+PI_GAMEPAD=1 PI_GAMEPAD_DEVICE=/dev/input/js0 your-command
+
+# macOS (optional, selects HID gamepad device automatically)
+PI_GAMEPAD=1 your-command
+```
+
+Optional macOS device override:
+
+```bash
+PI_GAMEPAD=1 PI_GAMEPAD_HID_PATH=<hid-device-path> your-command
+```
+
+Current DualSense (PS5) mapping:
+
+- `Cross` -> `Enter`
+- `Circle` -> `Escape`
+- `Square` -> `Tab`
+- `Triangle` -> `Shift+Tab`
+- `D-pad` -> arrow keys
+- `L1` / `R1` -> `PageUp` / `PageDown`
+
+Runtime sources:
+
+- Linux: joystick API (`/dev/input/js*`).
+- macOS: HID input via optional native extension dependency (`node-hid`).
+
+Notes:
+
+- This input source is optional and disabled by default.
+
+### Gamepad event monitor script
+
+Use this helper script to verify controller events before wiring in app behavior:
+
+```bash
+node packages/tui/scripts/gamepad-monitor.mjs --device /dev/input/js0 --raw
+```
+
+On macOS, the same command reads HID reports directly via `node-hid` (native extension) and prints real device events.
+
 ## Differential Rendering
 
 The TUI uses three rendering strategies:

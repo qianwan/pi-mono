@@ -32,6 +32,14 @@ export { doubleClickSelect, indexToScreenCol, type SelectionRange, screenColToIn
 export type { EditorComponent } from "./editor-component.js";
 // Fuzzy matching
 export { type FuzzyMatch, fuzzyFilter, fuzzyMatch } from "./fuzzy.js";
+// Gamepad event types
+export type {
+	GamepadEvent,
+	GamepadEventKind,
+	GamepadEventListener,
+	GamepadEventSource,
+	GamepadInputSource,
+} from "./gamepad/types.js";
 // Keybindings
 export {
 	DEFAULT_EDITOR_KEYBINDINGS,
