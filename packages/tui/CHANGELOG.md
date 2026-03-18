@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-03-18
+
 ### Fixed
 
 - Fixed tmux xterm `modifyOtherKeys` matching for `Backspace`, `Escape`, and `Space`, and resolved raw `\x08` backspace ambiguity by treating Windows Terminal sessions differently from legacy terminals ([#2293](https://github.com/badlogic/pi-mono/issues/2293))
