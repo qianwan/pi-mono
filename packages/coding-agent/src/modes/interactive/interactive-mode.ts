@@ -647,6 +647,9 @@ export class InteractiveMode {
 			runTmuxShow("extended-keys-format"),
 		]);
 
+		// If we couldn't query tmux (timeout, sandbox, etc.), don't warn
+		if (extendedKeys === undefined) return undefined;
+
 		if (extendedKeys !== "on" && extendedKeys !== "always") {
 			return "tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.";
 		}
@@ -4057,9 +4060,14 @@ export class InteractiveMode {
 
 		this.resetExtensionUI();
 
-		const loader = new BorderedLoader(this.ui, theme, "Reloading extensions, skills, prompts, themes...", {
-			cancellable: false,
-		});
+		const loader = new BorderedLoader(
+			this.ui,
+			theme,
+			"Reloading keybindings, extensions, skills, prompts, themes...",
+			{
+				cancellable: false,
+			},
+		);
 		const previousEditor = this.editor;
 		this.editorContainer.clear();
 		this.editorContainer.addChild(loader);
@@ -4076,6 +4084,7 @@ export class InteractiveMode {
 
 		try {
 			await this.session.reload();
+			this.keybindings.reload();
 			setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
 			this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
 			const themeName = this.settingsManager.getTheme();
@@ -4109,7 +4118,7 @@ export class InteractiveMode {
 			if (modelsJsonError) {
 				this.showError(`models.json error: ${modelsJsonError}`);
 			}
-			this.showStatus("Reloaded extensions, skills, prompts, themes");
+			this.showStatus("Reloaded keybindings, extensions, skills, prompts, themes");
 		} catch (error) {
 			dismissLoader(previousEditor as Component);
 			this.showError(`Reload failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -4347,6 +4356,10 @@ export class InteractiveMode {
 
 	private handleHotkeysCommand(): void {
 		// Navigation keybindings
+		const cursorUp = this.getEditorKeyDisplay("cursorUp");
+		const cursorDown = this.getEditorKeyDisplay("cursorDown");
+		const cursorLeft = this.getEditorKeyDisplay("cursorLeft");
+		const cursorRight = this.getEditorKeyDisplay("cursorRight");
 		const cursorWordLeft = this.getEditorKeyDisplay("cursorWordLeft");
 		const cursorWordRight = this.getEditorKeyDisplay("cursorWordRight");
 		const cursorLineStart = this.getEditorKeyDisplay("cursorLineStart");
@@ -4379,14 +4392,16 @@ export class InteractiveMode {
 		const expandTools = this.getAppKeyDisplay("expandTools");
 		const toggleThinking = this.getAppKeyDisplay("toggleThinking");
 		const externalEditor = this.getAppKeyDisplay("externalEditor");
+		const cycleModelBackward = this.getAppKeyDisplay("cycleModelBackward");
 		const followUp = this.getAppKeyDisplay("followUp");
 		const dequeue = this.getAppKeyDisplay("dequeue");
+		const pasteImage = this.getAppKeyDisplay("pasteImage");
 
 		let hotkeys = `
 **Navigation**
 | Key | Action |
 |-----|--------|
-| \`Arrow keys\` | Move cursor / browse history (Up when empty) |
+| \`${cursorUp}\` / \`${cursorDown}\` / \`${cursorLeft}\` / \`${cursorRight}\` | Move cursor / browse history (Up when empty) |
 | \`${cursorWordLeft}\` / \`${cursorWordRight}\` | Move by word |
 | \`${cursorLineStart}\` | Start of line |
 | \`${cursorLineEnd}\` | End of line |
@@ -4416,14 +4431,14 @@ export class InteractiveMode {
 | \`${exit}\` | Exit (when editor is empty) |
 | \`${suspend}\` | Suspend to background |
 | \`${cycleThinkingLevel}\` | Cycle thinking level |
-| \`${cycleModelForward}\` | Cycle models |
+| \`${cycleModelForward}\` / \`${cycleModelBackward}\` | Cycle models |
 | \`${selectModel}\` | Open model selector |
 | \`${expandTools}\` | Toggle tool output expansion |
 | \`${toggleThinking}\` | Toggle thinking block visibility |
 | \`${externalEditor}\` | Edit message in external editor |
 | \`${followUp}\` | Queue follow-up message |
 | \`${dequeue}\` | Restore queued messages |
-| \`Ctrl+V\` | Paste image from clipboard |
+| \`${pasteImage}\` | Paste image from clipboard |
 | \`/\` | Slash commands |
 | \`!\` | Run bash command |
 | \`!!\` | Run bash command (excluded from context) |
