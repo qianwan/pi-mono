@@ -42,12 +42,16 @@ export type {
 } from "./gamepad/types.js";
 // Keybindings
 export {
-	DEFAULT_EDITOR_KEYBINDINGS,
-	type EditorAction,
-	type EditorKeybindingsConfig,
-	EditorKeybindingsManager,
-	getEditorKeybindings,
-	setEditorKeybindings,
+	getKeybindings,
+	type Keybinding,
+	type KeybindingConflict,
+	type KeybindingDefinition,
+	type KeybindingDefinitions,
+	type Keybindings,
+	type KeybindingsConfig,
+	KeybindingsManager,
+	setKeybindings,
+	TUI_KEYBINDINGS,
 } from "./keybindings.js";
 // Keyboard input handling
 export {
