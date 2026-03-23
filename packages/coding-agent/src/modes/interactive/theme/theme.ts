@@ -6,6 +6,7 @@ import { TypeCompiler } from "@sinclair/typebox/compiler";
 import chalk from "chalk";
 import { highlight, supportsLanguage } from "cli-highlight";
 import { getCustomThemesDir, getThemesDir } from "../../../config.js";
+import type { SourceInfo } from "../../../core/source-info.js";
 
 // ============================================================================
 // Types & Schema
@@ -341,6 +342,7 @@ function resolveThemeColors<T extends Record<string, ColorValue>>(
 export class Theme {
 	readonly name?: string;
 	readonly sourcePath?: string;
+	sourceInfo?: SourceInfo;
 	private fgColors: Map<ThemeColor, string>;
 	private bgColors: Map<ThemeBg, string>;
 	private mode: ColorMode;
@@ -349,10 +351,11 @@ export class Theme {
 		fgColors: Record<ThemeColor, string | number>,
 		bgColors: Record<ThemeBg, string | number>,
 		mode: ColorMode,
-		options: { name?: string; sourcePath?: string } = {},
+		options: { name?: string; sourcePath?: string; sourceInfo?: SourceInfo } = {},
 	) {
 		this.name = options.name;
 		this.sourcePath = options.sourcePath;
+		this.sourceInfo = options.sourceInfo;
 		this.mode = mode;
 		this.fgColors = new Map();
 		for (const [key, value] of Object.entries(fgColors) as [ThemeColor, string | number][]) {
@@ -978,6 +981,12 @@ function getCliHighlightTheme(t: Theme): CliHighlightTheme {
 export function highlightCode(code: string, lang?: string): string[] {
 	// Validate language before highlighting to avoid stderr spam from cli-highlight
 	const validLang = lang && supportsLanguage(lang) ? lang : undefined;
+	// Skip highlighting when no valid language is specified. cli-highlight's
+	// auto-detection is unreliable and can misidentify prose as AppleScript,
+	// LiveCodeServer, etc., coloring random English words as keywords.
+	if (!validLang) {
+		return code.split("\n").map((line) => theme.fg("mdCodeBlock", line));
+	}
 	const opts = {
 		language: validLang,
 		ignoreIllegals: true,
@@ -1080,6 +1089,12 @@ export function getMarkdownTheme(): MarkdownTheme {
 		highlightCode: (code: string, lang?: string): string[] => {
 			// Validate language before highlighting to avoid stderr spam from cli-highlight
 			const validLang = lang && supportsLanguage(lang) ? lang : undefined;
+			// Skip highlighting when no valid language is specified. cli-highlight's
+			// auto-detection is unreliable and can misidentify prose as AppleScript,
+			// LiveCodeServer, etc., coloring random English words as keywords.
+			if (!validLang) {
+				return code.split("\n").map((line) => theme.fg("mdCodeBlock", line));
+			}
 			const opts = {
 				language: validLang,
 				ignoreIllegals: true,
