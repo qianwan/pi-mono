@@ -897,8 +897,10 @@ export class TUI extends Container {
 			minLinesNeeded = Math.max(minLinesNeeded, row + overlayLines.length);
 		}
 
-		// Ensure result covers the terminal working area to keep overlay positioning stable across resizes.
-		const workingHeight = Math.max(lines.length, minLinesNeeded);
+		// Pad to at least terminal height so overlays have screen-relative positions.
+		// Excludes maxLinesRendered: the historical high-water mark caused self-reinforcing
+		// inflation that pushed content into scrollback on terminal widen.
+		const workingHeight = Math.max(result.length, termHeight, minLinesNeeded);
 
 		// Extend result with empty lines if content is too short for overlay placement or working area
 		while (result.length < workingHeight) {

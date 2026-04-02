@@ -27,6 +27,8 @@ class FakeTerminal implements Terminal {
 	clearFromCursor(): void {}
 	clearScreen(): void {}
 	setTitle(_title: string): void {}
+	enableMouse(): void {}
+	disableMouse(): void {}
 
 	get fullClearCount(): number {
 		return this.writes.filter((write) => write.includes("\x1b[2J\x1b[H\x1b[3J")).length;
