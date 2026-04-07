@@ -23,7 +23,9 @@ export async function copyToClipboard(text: string): Promise<void> {
 	process.stdout.write(`\x1b]52;c;${encoded}\x07`);
 
 	try {
-		if (clipboard) {
+		// On macOS, @mariozechner/clipboard setText can panic inside native writeObjects.
+		// Prefer pbcopy/OSC52 path to avoid noisy runtime panics.
+		if (clipboard && process.platform !== "darwin") {
 			await clipboard.setText(text);
 			return;
 		}
