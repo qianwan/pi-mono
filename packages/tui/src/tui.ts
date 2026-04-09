@@ -229,7 +229,9 @@ export class Container implements Component {
 		for (const child of this.children) {
 			const startRow = lines.length;
 			const childLines = child.render(width);
-			lines.push(...childLines);
+			for (const line of childLines) {
+				lines.push(line);
+			}
 			this._childLayouts.push({ component: child, startRow, lineCount: childLines.length });
 		}
 		return lines;
