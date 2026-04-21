@@ -36,6 +36,7 @@ export type {
 	BeforeAgentStartEventResult,
 	BeforeProviderRequestEvent,
 	BeforeProviderRequestEventResult,
+	BuildSystemPromptOptions,
 	// Context
 	CompactOptions,
 	// Events - Agent
@@ -149,6 +150,7 @@ export type {
 	UserBashEvent,
 	UserBashEventResult,
 	WidgetPlacement,
+	WorkingIndicatorOptions,
 	WriteToolCallEvent,
 	WriteToolResultEvent,
 } from "./types.js";
