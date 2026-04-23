@@ -11,6 +11,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, Model, OAuthProviderId } from "@mariozechner/pi-ai";
 import type {
 	AutocompleteItem,
+	AutocompleteProvider,
 	EditorComponent,
 	EditorTheme,
 	Keybinding,
@@ -56,6 +57,8 @@ import {
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.js";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.js";
 import type {
+	AutocompleteProviderFactory,
+	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionRunner,
 	ExtensionUIContext,
@@ -212,7 +215,8 @@ export class InteractiveMode {
 	private statusContainer: Container;
 	private defaultEditor: CustomEditor;
 	private editor: EditorComponent;
-	private autocompleteProvider: CombinedAutocompleteProvider | undefined;
+	private autocompleteProvider: AutocompleteProvider | undefined;
+	private autocompleteProviderWrappers: AutocompleteProviderFactory[] = [];
 	private fdPath: string | undefined;
 	private editorContainer: Container;
 	private footer: FooterComponent;
@@ -223,7 +227,7 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private loadingAnimation: Loader | undefined = undefined;
-	private pendingWorkingMessage: string | undefined = undefined;
+	private workingMessage: string | undefined = undefined;
 	private workingIndicatorOptions: LoaderIndicatorOptions | undefined = undefined;
 	private readonly defaultWorkingMessage = "Working...";
 	private readonly defaultHiddenThinkingLabel = "Thinking...";
@@ -333,6 +337,9 @@ export class InteractiveMode {
 		private options: InteractiveModeOptions = {},
 	) {
 		this.runtimeHost = runtimeHost;
+		this.runtimeHost.setRebindSession(async () => {
+			await this.rebindCurrentSession();
+		});
 		this.version = VERSION;
 		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
@@ -413,7 +420,7 @@ export class InteractiveMode {
 			}));
 	}
 
-	private setupAutocomplete(fdPath: string | undefined): void {
+	private createBaseAutocompleteProvider(): AutocompleteProvider {
 		// Define commands for autocomplete
 		const slashCommands: SlashCommand[] = BUILTIN_SLASH_COMMANDS.map((command) => ({
 			name: command.name,
@@ -483,15 +490,23 @@ export class InteractiveMode {
 			}
 		}
 
-		// Setup autocomplete
-		this.autocompleteProvider = new CombinedAutocompleteProvider(
+		return new CombinedAutocompleteProvider(
 			[...slashCommands, ...templateCommands, ...extensionCommands, ...skillCommandList],
 			this.sessionManager.getCwd(),
-			fdPath,
+			this.fdPath,
 		);
-		this.defaultEditor.setAutocompleteProvider(this.autocompleteProvider);
+	}
+
+	private setupAutocompleteProvider(): void {
+		let provider = this.createBaseAutocompleteProvider();
+		for (const wrapProvider of this.autocompleteProviderWrappers) {
+			provider = wrapProvider(provider);
+		}
+
+		this.autocompleteProvider = provider;
+		this.defaultEditor.setAutocompleteProvider(provider);
 		if (this.editor !== this.defaultEditor) {
-			this.editor.setAutocompleteProvider?.(this.autocompleteProvider);
+			this.editor.setAutocompleteProvider?.(provider);
 		}
 	}
 
@@ -620,7 +635,7 @@ export class InteractiveMode {
 		this.isInitialized = true;
 
 		// Initialize extensions first so resources are shown before messages
-		await this.bindCurrentSessionExtensions();
+		await this.rebindCurrentSession();
 
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
@@ -1463,7 +1478,6 @@ export class InteractiveMode {
 					try {
 						const result = await this.runtimeHost.newSession(options);
 						if (!result.cancelled) {
-							await this.handleRuntimeSessionChange();
 							this.renderCurrentSessionState();
 							this.ui.requestRender();
 						}
@@ -1476,7 +1490,6 @@ export class InteractiveMode {
 					try {
 						const result = await this.runtimeHost.fork(entryId, options);
 						if (!result.cancelled) {
-							await this.handleRuntimeSessionChange();
 							this.renderCurrentSessionState();
 							this.editor.setText(result.selectedText ?? "");
 							this.showStatus("Forked to new session");
@@ -1506,9 +1519,8 @@ export class InteractiveMode {
 					void this.flushCompactionQueue({ willRetry: false });
 					return { cancelled: false };
 				},
-				switchSession: async (sessionPath) => {
-					await this.handleResumeSession(sessionPath);
-					return { cancelled: false };
+				switchSession: async (sessionPath, options) => {
+					return this.handleResumeSession(sessionPath, options);
 				},
 				reload: async () => {
 					await this.handleReloadCommand();
@@ -1526,7 +1538,7 @@ export class InteractiveMode {
 		});
 
 		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
-		this.setupAutocomplete(this.fdPath);
+		this.setupAutocompleteProvider();
 
 		const extensionRunner = this.session.extensionRunner;
 		this.setupExtensionShortcuts(extensionRunner);
@@ -1551,7 +1563,7 @@ export class InteractiveMode {
 		}
 	}
 
-	private async handleRuntimeSessionChange(): Promise<void> {
+	private async rebindCurrentSession(): Promise<void> {
 		this.resetExtensionUI();
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
@@ -1742,10 +1754,12 @@ export class InteractiveMode {
 		this.clearExtensionWidgets();
 		this.footerDataProvider.clearExtensionStatuses();
 		this.footer.invalidate();
+		this.autocompleteProviderWrappers = [];
 		this.setCustomEditorComponent(undefined);
+		this.setupAutocompleteProvider();
 		this.defaultEditor.onExtensionShortcut = undefined;
 		this.updateTerminalTitle();
-		this.pendingWorkingMessage = undefined;
+		this.workingMessage = undefined;
 		this.setWorkingIndicator();
 		if (this.loadingAnimation) {
 			this.loadingAnimation.setMessage(`${this.defaultWorkingMessage} (${keyText("app.interrupt")} to interrupt)`);
@@ -1896,6 +1910,7 @@ export class InteractiveMode {
 			onTerminalInput: (handler) => this.addExtensionTerminalInputListener(handler),
 			setStatus: (key, text) => this.setExtensionStatus(key, text),
 			setWorkingMessage: (message) => {
+				this.workingMessage = message;
 				if (this.loadingAnimation) {
 					if (message) {
 						this.loadingAnimation.setMessage(message);
@@ -1904,9 +1919,6 @@ export class InteractiveMode {
 							`${this.defaultWorkingMessage} (${keyText("app.interrupt")} to interrupt)`,
 						);
 					}
-				} else {
-					// Queue message for when loadingAnimation is created (handles agent_start race)
-					this.pendingWorkingMessage = message;
 				}
 			},
 			setWorkingIndicator: (options) => this.setWorkingIndicator(options),
@@ -1920,6 +1932,10 @@ export class InteractiveMode {
 			setEditorText: (text) => this.editor.setText(text),
 			getEditorText: () => this.editor.getExpandedText?.() ?? this.editor.getText(),
 			editor: (title, prefill) => this.showExtensionEditor(title, prefill),
+			addAutocompleteProvider: (factory) => {
+				this.autocompleteProviderWrappers.push(factory);
+				this.setupAutocompleteProvider();
+			},
 			setEditorComponent: (factory) => this.setCustomEditorComponent(factory),
 			get theme() {
 				return theme;
@@ -2585,6 +2601,7 @@ export class InteractiveMode {
 
 		switch (event.type) {
 			case "agent_start":
+				this.ui.terminal.setProgress(true);
 				// Restore main escape handler if retry handler is still active
 				// (retry success event fires later, but we need main handler now)
 				if (this.retryEscapeHandler) {
@@ -2607,17 +2624,10 @@ export class InteractiveMode {
 					this.ui,
 					(spinner) => theme.fg("accent", spinner),
 					(text) => theme.fg("muted", text),
-					this.defaultWorkingMessage,
+					this.workingMessage || this.defaultWorkingMessage,
 					this.workingIndicatorOptions,
 				);
 				this.statusContainer.addChild(this.loadingAnimation);
-				// Apply any pending working message queued before loader existed
-				if (this.pendingWorkingMessage !== undefined) {
-					if (this.pendingWorkingMessage) {
-						this.loadingAnimation.setMessage(this.pendingWorkingMessage);
-					}
-					this.pendingWorkingMessage = undefined;
-				}
 				this.ui.requestRender();
 				break;
 
@@ -2766,6 +2776,7 @@ export class InteractiveMode {
 			}
 
 			case "agent_end":
+				this.ui.terminal.setProgress(false);
 				if (this.loadingAnimation) {
 					this.loadingAnimation.stop();
 					this.loadingAnimation = undefined;
@@ -2784,6 +2795,7 @@ export class InteractiveMode {
 				break;
 
 			case "compaction_start": {
+				this.ui.terminal.setProgress(true);
 				// Keep editor active; submissions are queued during compaction.
 				this.autoCompactionEscapeHandler = this.defaultEditor.onEscape;
 				this.defaultEditor.onEscape = () => {
@@ -2807,6 +2819,7 @@ export class InteractiveMode {
 			}
 
 			case "compaction_end": {
+				this.ui.terminal.setProgress(false);
 				if (this.autoCompactionEscapeHandler) {
 					this.defaultEditor.onEscape = this.autoCompactionEscapeHandler;
 					this.autoCompactionEscapeHandler = undefined;
@@ -3980,7 +3993,7 @@ export class InteractiveMode {
 					},
 					onEnableSkillCommandsChange: (enabled) => {
 						this.settingsManager.setEnableSkillCommands(enabled);
-						this.setupAutocomplete(this.fdPath);
+						this.setupAutocompleteProvider();
 					},
 					onSteeringModeChange: (mode) => {
 						this.session.setSteeringMode(mode);
@@ -4279,7 +4292,6 @@ export class InteractiveMode {
 							return;
 						}
 
-						await this.handleRuntimeSessionChange();
 						this.renderCurrentSessionState();
 						this.editor.setText(result.selectedText ?? "");
 						done();
@@ -4313,7 +4325,6 @@ export class InteractiveMode {
 				return;
 			}
 
-			await this.handleRuntimeSessionChange();
 			this.renderCurrentSessionState();
 			this.editor.setText("");
 			this.showStatus("Cloned to new session");
@@ -4486,37 +4497,44 @@ export class InteractiveMode {
 		});
 	}
 
-	private async handleResumeSession(sessionPath: string): Promise<void> {
+	private async handleResumeSession(
+		sessionPath: string,
+		options?: Parameters<ExtensionCommandContext["switchSession"]>[1],
+	): Promise<{ cancelled: boolean }> {
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;
 		}
 		this.statusContainer.clear();
 		try {
-			const result = await this.runtimeHost.switchSession(sessionPath);
+			const result = await this.runtimeHost.switchSession(sessionPath, {
+				withSession: options?.withSession,
+			});
 			if (result.cancelled) {
-				return;
+				return result;
 			}
-			await this.handleRuntimeSessionChange();
 			this.renderCurrentSessionState();
 			this.showStatus("Resumed session");
+			return result;
 		} catch (error: unknown) {
 			if (error instanceof MissingSessionCwdError) {
 				const selectedCwd = await this.promptForMissingSessionCwd(error);
 				if (!selectedCwd) {
 					this.showStatus("Resume cancelled");
-					return;
+					return { cancelled: true };
 				}
-				const result = await this.runtimeHost.switchSession(sessionPath, selectedCwd);
+				const result = await this.runtimeHost.switchSession(sessionPath, {
+					cwdOverride: selectedCwd,
+					withSession: options?.withSession,
+				});
 				if (result.cancelled) {
-					return;
+					return result;
 				}
-				await this.handleRuntimeSessionChange();
 				this.renderCurrentSessionState();
 				this.showStatus("Resumed session in current cwd");
-				return;
+				return result;
 			}
-			await this.handleFatalRuntimeError("Failed to resume session", error);
+			return this.handleFatalRuntimeError("Failed to resume session", error);
 		}
 	}
 
@@ -4763,7 +4781,7 @@ export class InteractiveMode {
 			}
 			this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
 			this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
-			this.setupAutocomplete(this.fdPath);
+			this.setupAutocompleteProvider();
 			const runner = this.session.extensionRunner;
 			this.setupExtensionShortcuts(runner);
 			this.rebuildChatFromMessages();
@@ -4852,7 +4870,6 @@ export class InteractiveMode {
 				this.showStatus("Import cancelled");
 				return;
 			}
-			await this.handleRuntimeSessionChange();
 			this.renderCurrentSessionState();
 			this.showStatus(`Session imported from: ${inputPath}`);
 		} catch (error: unknown) {
@@ -4867,7 +4884,6 @@ export class InteractiveMode {
 					this.showStatus("Import cancelled");
 					return;
 				}
-				await this.handleRuntimeSessionChange();
 				this.renderCurrentSessionState();
 				this.showStatus(`Session imported from: ${inputPath}`);
 				return;
@@ -5223,7 +5239,6 @@ export class InteractiveMode {
 			if (result.cancelled) {
 				return;
 			}
-			await this.handleRuntimeSessionChange();
 			this.renderCurrentSessionState();
 			this.chatContainer.addChild(new Spacer(1));
 			this.chatContainer.addChild(new Text(`${theme.fg("accent", "✓ New session started")}`, 1, 1));
@@ -5401,6 +5416,7 @@ export class InteractiveMode {
 
 	stop(): void {
 		this.unregisterSignalHandlers();
+		this.ui.terminal.setProgress(false);
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;

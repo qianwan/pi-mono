@@ -58,6 +58,9 @@ export interface Terminal {
 	// Gamepad input (if available)
 	addGamepadListener?(listener: GamepadEventListener): () => void;
 	removeGamepadListener?(listener: GamepadEventListener): void;
+
+	// Progress indicator (OSC 9;4)
+	setProgress(active: boolean): void;
 }
 
 /**
@@ -434,6 +437,16 @@ export class ProcessTerminal implements Terminal {
 
 		if (process.env.PI_GAMEPAD === "1" && event.mappedKeySequence && this.inputHandler) {
 			this.inputHandler(event.mappedKeySequence);
+		}
+	}
+
+	setProgress(active: boolean): void {
+		if (active) {
+			// OSC 9;4;3 - indeterminate progress
+			process.stdout.write("\x1b]9;4;3\x07");
+		} else {
+			// OSC 9;4;0 - clear progress
+			process.stdout.write("\x1b]9;4;0;\x07");
 		}
 	}
 }

@@ -108,6 +108,8 @@ export class VirtualTerminal implements Terminal {
 		// No-op for virtual terminal
 	}
 
+	setProgress(_active: boolean): void {}
+
 	// Test-specific methods not in Terminal interface
 
 	/**
