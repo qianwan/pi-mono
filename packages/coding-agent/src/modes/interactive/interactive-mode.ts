@@ -643,12 +643,6 @@ export class InteractiveMode {
 		// Enable mouse reporting and set up click-to-expand handler
 		this.setupMouseHandler();
 
-		// Set terminal title
-		this.updateTerminalTitle();
-
-		// Subscribe to agent events
-		this.subscribeToAgent();
-
 		// Set up theme file watcher
 		onThemeChange(() => {
 			this.ui.invalidate();
