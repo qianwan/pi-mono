@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-04-23
+
+### Fixed
+
+- Kept OSC 9;4 terminal progress alive with periodic updates so Ghostty does not clear the indicator during long-running agent work ([#3610](https://github.com/badlogic/pi-mono/issues/3610))
+
 ## [0.69.0] - 2026-04-22
 
 ### Added

@@ -27,6 +27,7 @@ export interface TerminalSettings {
 	showImages?: boolean; // default: true (only relevant if terminal supports images)
 	imageWidthCells?: number; // default: 60 (preferred inline image width in terminal cells)
 	clearOnShrink?: boolean; // default: false (clear empty rows when content shrinks)
+	showTerminalProgress?: boolean; // default: false (OSC 9;4 terminal progress indicators)
 }
 
 export interface ImageSettings {
@@ -288,7 +289,9 @@ export class SettingsManager {
 	/** Create an in-memory SettingsManager (no file I/O) */
 	static inMemory(settings: Partial<Settings> = {}): SettingsManager {
 		const storage = new InMemorySettingsStorage();
-		return new SettingsManager(storage, settings, {});
+		const initialSettings = SettingsManager.migrateSettings(structuredClone(settings) as Record<string, unknown>);
+		storage.withLock("global", () => JSON.stringify(initialSettings, null, 2));
+		return SettingsManager.fromStorage(storage);
 	}
 
 	private static loadFromStorage(storage: SettingsStorage, scope: SettingsScope): Settings {
@@ -902,6 +905,19 @@ export class SettingsManager {
 		}
 		this.globalSettings.terminal.clearOnShrink = enabled;
 		this.markModified("terminal", "clearOnShrink");
+		this.save();
+	}
+
+	getShowTerminalProgress(): boolean {
+		return this.settings.terminal?.showTerminalProgress ?? false;
+	}
+
+	setShowTerminalProgress(enabled: boolean): void {
+		if (!this.globalSettings.terminal) {
+			this.globalSettings.terminal = {};
+		}
+		this.globalSettings.terminal.showTerminalProgress = enabled;
+		this.markModified("terminal", "showTerminalProgress");
 		this.save();
 	}
 

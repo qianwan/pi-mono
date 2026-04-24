@@ -8,6 +8,10 @@ import { StdinBuffer } from "./stdin-buffer.js";
 
 const cjsRequire = createRequire(import.meta.url);
 
+const TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;
+const TERMINAL_PROGRESS_ACTIVE_SEQUENCE = "\x1b]9;4;3\x07";
+const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\x1b]9;4;0;\x07";
+
 /**
  * Minimal terminal interface for TUI
  */
@@ -77,6 +81,7 @@ export class ProcessTerminal implements Terminal {
 	private _mouseActive = false;
 	private gamepadInputSource?: GamepadInputSource;
 	private gamepadListeners = new Set<GamepadEventListener>();
+	private progressInterval?: ReturnType<typeof setInterval>;
 	private writeLogPath = (() => {
 		const env = process.env.PI_TUI_WRITE_LOG || "";
 		if (!env) return "";
@@ -295,6 +300,9 @@ export class ProcessTerminal implements Terminal {
 
 	stop(): void {
 		this.teardownGamepadInputSource();
+		if (this.clearProgressInterval()) {
+			process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
+		}
 
 		// Disable bracketed paste mode
 		process.stdout.write("\x1b[?2004l");
@@ -443,10 +451,23 @@ export class ProcessTerminal implements Terminal {
 	setProgress(active: boolean): void {
 		if (active) {
 			// OSC 9;4;3 - indeterminate progress
-			process.stdout.write("\x1b]9;4;3\x07");
+			process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
+			if (!this.progressInterval) {
+				this.progressInterval = setInterval(() => {
+					process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
+				}, TERMINAL_PROGRESS_KEEPALIVE_MS);
+			}
 		} else {
+			this.clearProgressInterval();
 			// OSC 9;4;0 - clear progress
-			process.stdout.write("\x1b]9;4;0;\x07");
+			process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
 		}
+	}
+
+	private clearProgressInterval(): boolean {
+		if (!this.progressInterval) return false;
+		clearInterval(this.progressInterval);
+		this.progressInterval = undefined;
+		return true;
 	}
 }

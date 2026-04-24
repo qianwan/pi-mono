@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-04-23
+
 ### Fixed
 
 - Fixed Mom event-directory `fs.watch` error handling to retry after transient watcher failures such as `EMFILE`, avoiding startup crashes ([#3564](https://github.com/badlogic/pi-mono/issues/3564))
