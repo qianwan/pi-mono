@@ -180,12 +180,14 @@ function graphemeWidth(segment: string): number {
 
 	let width = eastAsianWidth(cp);
 
-	// Trailing halfwidth/fullwidth forms
+	// Trailing halfwidth/fullwidth forms and AM vowels that segment with a base.
 	if (segment.length > 1) {
 		for (const char of segment.slice(1)) {
 			const c = char.codePointAt(0)!;
 			if (c >= 0xff00 && c <= 0xffef) {
 				width += eastAsianWidth(c);
+			} else if (c === 0x0e33 || c === 0x0eb3) {
+				width += 1;
 			}
 		}
 	}
@@ -264,6 +266,20 @@ export function stripAnsi(str: string): string {
 	clean = clean.replace(/\x1b\]8;;[^\x07]*\x07/g, "");
 	clean = clean.replace(/\x1b_[^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
 	return clean;
+}
+
+/**
+ * Normalize text for terminal output without changing logical editor content.
+ * Some terminals render precomposed Thai/Lao AM vowels inconsistently during
+ * differential repaint. Their compatibility decompositions have the same cell
+ * width but avoid stale-cell artifacts in terminal renderers.
+ */
+const THAI_LAO_AM_REGEX = /[\u0e33\u0eb3]/;
+const THAI_LAO_AM_GLOBAL_REGEX = /[\u0e33\u0eb3]/g;
+
+export function normalizeTerminalOutput(str: string): string {
+	if (!THAI_LAO_AM_REGEX.test(str)) return str;
+	return str.replace(THAI_LAO_AM_GLOBAL_REGEX, (char) => (char === "\u0e33" ? "\u0e4d\u0e32" : "\u0ecd\u0eb2"));
 }
 
 /**

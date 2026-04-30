@@ -11,7 +11,14 @@ import { isMouseSequence, type MouseEvent, parseMouseSequence } from "./mouse.js
 import type { Terminal } from "./terminal.js";
 import { deleteAllKittyImages, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.js";
 import { renderCroppedImageLine } from "./terminal-image-crop.js";
-import { extractSegments, sliceByColumn, sliceWithWidth, stripAnsi, visibleWidth } from "./utils.js";
+import {
+	extractSegments,
+	normalizeTerminalOutput,
+	sliceByColumn,
+	sliceWithWidth,
+	stripAnsi,
+	visibleWidth,
+} from "./utils.js";
 
 /**
  * Component interface - all components must implement this
@@ -974,7 +981,7 @@ export class TUI extends Container {
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
 			if (!isImageLine(line)) {
-				lines[i] = line + reset;
+				lines[i] = normalizeTerminalOutput(line) + reset;
 			}
 		}
 		return lines;
