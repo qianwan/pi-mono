@@ -11,7 +11,6 @@ export type KnownApi =
 	| "anthropic-messages"
 	| "bedrock-converse-stream"
 	| "google-generative-ai"
-	| "google-gemini-cli"
 	| "google-vertex";
 
 export type Api = KnownApi | (string & {});
@@ -20,8 +19,6 @@ export type KnownProvider =
 	| "amazon-bedrock"
 	| "anthropic"
 	| "google"
-	| "google-gemini-cli"
-	| "google-antigravity"
 	| "google-vertex"
 	| "openai"
 	| "azure-openai-responses"
@@ -37,12 +34,15 @@ export type KnownProvider =
 	| "mistral"
 	| "minimax"
 	| "minimax-cn"
+	| "moonshotai"
+	| "moonshotai-cn"
 	| "huggingface"
 	| "fireworks"
 	| "opencode"
 	| "opencode-go"
 	| "kimi-coding"
-	| "cloudflare-workers-ai";
+	| "cloudflare-workers-ai"
+	| "cloudflare-ai-gateway";
 export type Provider = KnownProvider | string;
 
 export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh";

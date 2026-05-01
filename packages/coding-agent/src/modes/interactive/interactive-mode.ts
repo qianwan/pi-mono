@@ -2687,6 +2687,11 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 
+			case "thinking_level_changed":
+				this.footer.invalidate();
+				this.updateEditorBorderColor();
+				break;
+
 			case "message_start":
 				if (event.message.role === "custom") {
 					this.addMessageToChat(event.message);

@@ -1,6 +1,10 @@
 <p align="center">
   <a href="https://pi.dev">
-    <img src="https://pi.dev/logo.svg" alt="pi logo" width="128">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://pi.dev/logo.svg">
+      <source media="(prefers-color-scheme: light)" srcset="https://huggingface.co/buckets/julien-c/my-training-bucket/resolve/pi-logo-dark.svg">
+      <img alt="pi logo" src="https://pi.dev/logo.svg" width="128">
+    </picture>
   </a>
 </p>
 <p align="center">
@@ -100,8 +104,6 @@ For each built-in provider, pi maintains a list of tool-capable models, updated 
 - Anthropic Claude Pro/Max
 - OpenAI ChatGPT Plus/Pro (Codex)
 - GitHub Copilot
-- Google Gemini CLI
-- Google Antigravity
 
 **API keys:**
 - Anthropic
@@ -114,6 +116,7 @@ For each built-in provider, pi maintains a list of tool-capable models, updated 
 - Mistral
 - Groq
 - Cerebras
+- Cloudflare AI Gateway
 - Cloudflare Workers AI
 - xAI
 - OpenRouter
@@ -273,7 +276,14 @@ Use `/settings` to modify common options, or edit JSON files directly:
 
 See [docs/settings.md](docs/settings.md) for all options.
 
-To opt out of anonymous install/update telemetry tied to changelog detection, set `enableInstallTelemetry` to `false` in `settings.json`, or set `PI_TELEMETRY=0`.
+### Telemetry and update checks
+
+Pi has two separate startup features:
+
+- **Update check:** fetches `https://pi.dev/api/latest-version` to check whether a newer Pi version exists. Disable it with `PI_SKIP_VERSION_CHECK=1`. Disabling update checks only turns off this check.
+- **Install/update telemetry:** after first install or a changelog-detected update, sends an anonymous version ping to `https://pi.dev/api/report-install`. Opt out by setting `enableInstallTelemetry` to `false` in `settings.json`, or by setting `PI_TELEMETRY=0`. This does not disable update checks; Pi may still contact `pi.dev` for the latest version unless update checks are disabled or offline mode is enabled.
+
+Use `--offline` or `PI_OFFLINE=1` to disable all startup network operations described here, including update checks, package update checks, and install/update telemetry.
 
 ---
 
@@ -610,9 +620,11 @@ pi --thinking high "Solve this complex problem"
 | Variable | Description |
 |----------|-------------|
 | `PI_CODING_AGENT_DIR` | Override config directory (default: `~/.pi/agent`) |
+| `PI_CODING_AGENT_SESSION_DIR` | Override session storage directory (overridden by `--session-dir`) |
 | `PI_PACKAGE_DIR` | Override package directory (useful for Nix/Guix where store paths tokenize poorly) |
-| `PI_SKIP_VERSION_CHECK` | Skip version check at startup |
-| `PI_TELEMETRY` | Override install telemetry. Use `1`/`true`/`yes` to enable or `0`/`false`/`no` to disable |
+| `PI_OFFLINE` | Disable startup network operations, including update checks, package update checks, and install/update telemetry |
+| `PI_SKIP_VERSION_CHECK` | Skip the Pi version update check at startup. This prevents the `pi.dev` latest-version request |
+| `PI_TELEMETRY` | Override install/update telemetry. Use `1`/`true`/`yes` to enable or `0`/`false`/`no` to disable. This does not disable update checks |
 | `PI_CACHE_RETENTION` | Set to `long` for extended prompt cache (Anthropic: 1h, OpenAI: 24h) |
 | `VISUAL`, `EDITOR` | External editor for Ctrl+G |
 
@@ -631,5 +643,5 @@ MIT
 ## See Also
 
 - [@mariozechner/pi-ai](https://www.npmjs.com/package/@mariozechner/pi-ai): Core LLM toolkit
-- [@mariozechner/pi-agent](https://www.npmjs.com/package/@mariozechner/pi-agent): Agent framework
+- [@mariozechner/pi-agent-core](https://www.npmjs.com/package/@mariozechner/pi-agent-core): Agent framework
 - [@mariozechner/pi-tui](https://www.npmjs.com/package/@mariozechner/pi-tui): Terminal UI components
