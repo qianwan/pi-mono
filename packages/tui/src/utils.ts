@@ -262,10 +262,19 @@ export function stripAnsi(str: string): string {
 	if (clean.includes("\t")) {
 		clean = clean.replace(/\t/g, "   ");
 	}
-	clean = clean.replace(/\x1b\[[0-9;]*[mGKHJ]/g, "");
-	clean = clean.replace(/\x1b\]8;;[^\x07]*\x07/g, "");
-	clean = clean.replace(/\x1b_[^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
-	return clean;
+
+	let result = "";
+	let i = 0;
+	while (i < clean.length) {
+		const ansi = extractAnsiCode(clean, i);
+		if (ansi) {
+			i += ansi.length;
+			continue;
+		}
+		result += clean[i];
+		i++;
+	}
+	return result;
 }
 
 /**

@@ -4,7 +4,7 @@
  * Priority: bracket pair > URL > file path > word (with Chinese segmentation).
  */
 
-import { visibleWidth } from "./utils.js";
+import { getSegmenter, visibleWidth } from "./utils.js";
 
 const BRACKET_PAIRS: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
 const CLOSE_TO_OPEN: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
@@ -39,9 +39,9 @@ export interface SelectionRange {
  */
 export function screenColToIndex(line: string, screenCol: number): number {
 	let col = 0;
-	for (let i = 0; i < line.length; i++) {
-		const w = visibleWidth(line[i]!);
-		if (col + w > screenCol) return i;
+	for (const { segment, index } of getSegmenter().segment(line)) {
+		const w = visibleWidth(segment);
+		if (col + w > screenCol) return index;
 		col += w;
 	}
 	return line.length;
