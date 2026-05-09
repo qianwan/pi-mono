@@ -2,8 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added Together AI to built-in provider setup, `/login` API-key auth, and default model resolution ([#3624](https://github.com/earendil-works/pi-mono/pull/3624) by [@Nutlope](https://github.com/Nutlope)).
+
 ### Fixed
 
+- Fixed keybinding hints to show Option instead of Alt on macOS ([#4289](https://github.com/earendil-works/pi/issues/4289)).
 - Fixed the interactive update notification to render the changelog as an OSC 8 hyperlink when the terminal supports hyperlinks ([#4280](https://github.com/earendil-works/pi/issues/4280)).
 
 ## [0.74.0] - 2026-05-07
