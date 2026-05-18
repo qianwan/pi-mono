@@ -1,5 +1,4 @@
 import chalk from "chalk";
-import { spawn } from "child_process";
 import { selectConfig } from "./cli/config-selector.js";
 import {
 	APP_NAME,
@@ -14,7 +13,7 @@ import {
 } from "./config.js";
 import { DefaultPackageManager } from "./core/package-manager.js";
 import { SettingsManager } from "./core/settings-manager.js";
-import { resolveSpawnCommand } from "./utils/child-process.js";
+import { spawnProcess } from "./utils/child-process.js";
 import { getLatestPiRelease, isNewerPackageVersion } from "./utils/version-check.js";
 import {
 	cleanupWindowsSelfUpdateQuarantine,
@@ -322,8 +321,7 @@ async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
 	console.log(chalk.dim(`Updating ${APP_NAME} with ${command.display}...`));
 	for (const step of command.steps ?? [command]) {
 		await new Promise<void>((resolve, reject) => {
-			const resolved = resolveSpawnCommand(step.command, step.args);
-			const child = spawn(resolved.command, resolved.args, {
+			const child = spawnProcess(step.command, step.args, {
 				stdio: "inherit",
 			});
 			child.on("error", (error) => {
@@ -506,8 +504,10 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 						return true;
 					}
 					const installMethod = detectInstallMethod();
-					if (process.platform === "win32" && installMethod !== "npm") {
-						console.error(chalk.red(`${APP_NAME} self-update on Windows is only supported for npm installs.`));
+					if (process.platform === "win32" && installMethod !== "npm" && installMethod !== "pnpm") {
+						console.error(
+							chalk.red(`${APP_NAME} self-update on Windows is only supported for npm and pnpm installs.`),
+						);
 						console.error(chalk.dim(`Detected install method: ${installMethod}. Update ${APP_NAME} manually.`));
 						process.exitCode = 1;
 						return true;
@@ -523,7 +523,9 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 						return true;
 					}
 					try {
-						prepareWindowsNpmSelfUpdate();
+						if (installMethod === "npm") {
+							prepareWindowsNpmSelfUpdate();
+						}
 						await runSelfUpdate(selfUpdateCommand);
 					} catch (error: unknown) {
 						const message = error instanceof Error ? error.message : "Unknown package command error";
